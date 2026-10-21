@@ -1,7 +1,7 @@
 # Port Authority Stats: Product & Technical Plan
 *For Jacob Murray · v2.1, approved 2026-10-20 · Free/OSS only · All decisions locked (§9)*
 *Repo: [jakepmurray/port-authority-stats](https://github.com/jakepmurray/port-authority-stats) (MIT) · App: https://jakepmurray.github.io/port-authority-stats/*
-*Status (2026-10-21): Phase 0 scaffold and Phase 1 film-entry MVP live; Phase 2 Google Sheet sync built (Apps Script in `apps-script/`, set up under Settings). Live sideline entry is next.*
+*Status (2026-10-21): Phase 0 scaffold and Phase 1 film-entry MVP live; Phase 2 Google Sheet sync built (Apps Script in `apps-script/`, set up under Settings); import from UltiAnalytics (CSV or public team link, Data page). Live sideline entry is next.*
 
 ## 1. Goal
 A free, open-source stat app for Port Authority (Mixed) that you use **while watching game film**.
@@ -19,7 +19,7 @@ A free, open-source stat app for Port Authority (Mixed) that you use **while wat
 | Sideline stat-keeper | Live, Phase 2 | Fast tap entry on an Android phone, offline |
 
 ## 3. What exists (brief)
-- **UltiAnalytics / iUltimate** ([support](https://www.ultianalytics.com/ios/support.html)): open source and iOS-only. It covered passes, drops, Ds, Callahans, undo and corrections. It has been unmaintained since 2018 ([Reddit](https://www.reddit.com/r/ultimate/comments/1jfw08r/)).
+- **UltiAnalytics / iUltimate** ([support](https://www.ultianalytics.com/ios/support.html)): open source and iOS-only. It covered passes, drops, Ds, Callahans, undo and corrections. It was reported unmaintained in 2018 ([Reddit](https://www.reddit.com/r/ultimate/comments/1jfw08r/)), but ultianalytics.com and its read API are still up (checked 2026-10-21), so this app can import its games (see the README).
 - **Statto** ([Ultiworld, Jul 2026](https://ultiworld.com/2026/07/07/welcome-to-statto-by-ultiworld/)): pitch-level tracking, play-by-play and heatmaps. It is iOS-only and needs a **paid** Ultiworld subscription; Android is promised.
 - **OSS references:** [Ulti Game Tracker](https://github.com/ben-duivenvoorden/Ulti-Game-Tracker) is a React PWA with an append-only event log and a derived state machine. This is the model to copy. Also [U-Stat](https://github.com/DanLang1/ultimatestats) (Expo) and [Ulti Stats](https://github.com/DerrykBoyd/ulti-stats) (PWA).
 - **Gap this fills:** none of these is built around film-first entry with events linked to the video. This app also adds free sheet sharing, a desktop and Android PWA, and a built-in path to the assisted tagger.
