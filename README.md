@@ -31,6 +31,13 @@ Paste a YouTube link, watch the game beside a stat panel, and every stat you ent
 
 - **Layouts:** *Video* (side by side), *Collapse* (video hidden but still playing), *Pop out* (video in its own window for a
   second screen, kept in sync), *Stats only* (no video; type a timestamp or leave it blank).
+- **Turnover tags:** right after a turnover (or block/Callahan), a chip row offers tags: *receiver error*, *difficult throw*,
+  *great D*, *wind*, *miscommunication*, *hammer/huck*, plus your own (type a new one; it is saved for the team). Number keys
+  toggle tags, `Enter` saves, `Esc` skips, and any action key saves and moves on. Turn the prompt off with *Tag turns*.
+  Tags add context only: a throwaway tagged *receiver error* is still the thrower's throwaway. Edit tags on any event in the
+  play-by-play, and filter the play-by-play by tag.
+- **Missed on film:** if a point isn't on the video, record who scored with *We scored / They scored* under *Start point*
+  (or *Not on film…* mid-point). Edit it like any point.
 - **Full / Quick:** Full is pass-by-pass. Quick is goals, assists, Ds and turns only.
 - **Play-by-play:** click a time to jump the film there (3 s before). Edit, insert (`+`) or delete any event; edit any point
   (line, O/D, ratio, puller). Deletes are soft and can be restored ("show deleted"). Hand edits are marked *edited*.
@@ -47,6 +54,10 @@ Paste a YouTube link, watch the game beside a stat panel, and every stat you ent
 - +/-: goals + assists + Ds − turnovers.
 - O conversion: holds ÷ finished O points. D break %: breaks ÷ finished D points.
 - The opponent is tracked at team level only.
+- Turnovers by tag: each tagged turnover, by type, for the team and per player (and the opponent's turns by tag).
+  Tags never move the turnover to someone else.
+- Points missed on film count in the score and in holds/breaks, but not in per-player points or event stats, and not in
+  turns per point. They are shown as *Missed on film* (team) and *Miss* (player).
 
 ## Develop
 

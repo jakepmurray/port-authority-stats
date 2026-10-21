@@ -1,7 +1,8 @@
 import { ratioForPoint } from '../domain/abba'
 import { makeBackup, mergeRows, parseBackup, type Backup } from '../domain/backup'
 import type { EventDraft } from '../domain/entry'
-import { deriveGame, liveOnly, outcomeOf, replayPoint } from '../domain/game'
+import { deriveGame, liveOnly, missedState, outcomeOf, replayPoint } from '../domain/game'
+import { normalizeTag } from '../domain/tags'
 import type { Game, GameEvent, Point, Side } from '../domain/schema'
 import { repo as defaultRepo, type NewRow, type Repo } from './repo'
 
@@ -42,7 +43,11 @@ export class Actions {
   /** Start the next point. Ratio and O/D default to what the game state predicts. */
   async startPoint(
     gameId: string,
-    opts: { line: string[]; pulled_by?: string | null; start_on?: Side; ratio?: Point['ratio']; video_time?: number | null },
+    opts: {
+      line: string[]; pulled_by?: string | null; start_on?: Side; ratio?: Point['ratio']; video_time?: number | null
+      /** Record a point that is not on the film, with its result entered by hand. */
+      missed?: { result: Point['manual_result'] }
+    },
   ) {
     const { game, points, events } = await this.gameData(gameId)
     const st = deriveGame(game, points, events)
@@ -59,7 +64,36 @@ export class Actions {
       line: opts.line,
       pulled_by: opts.pulled_by ?? null,
       video_start: opts.video_time ?? null,
+      missed_on_film: !!opts.missed,
+      manual_result: opts.missed?.result ?? null,
+      outcome: opts.missed ? outcomeOf(opts.start_on ?? st.next.start_on, opts.missed.result) : 'none',
     })
+  }
+
+  /** Mark a point as (not) missed on film, with the hand-entered result. */
+  async setPointMissed(pointId: string, missed: boolean, result: Point['manual_result'] = null) {
+    return this.editPoint(pointId, { missed_on_film: missed, manual_result: missed ? result : null })
+  }
+
+  /** Set an event's tags. Tags add context only; they never change who is charged. */
+  async tagEvent(id: string, tags: string[], byHand = false) {
+    const clean = [...new Map(tags.map(normalizeTag).filter(Boolean).map((t) => [t.toLowerCase(), t])).values()]
+    return this.repo.update('events', id, { tags: clean }, { byHand })
+  }
+
+  /** Save a custom tag on the team so it is offered again in every game. */
+  async addCustomTag(tag: string) {
+    const t = normalizeTag(tag)
+    if (!t) return null
+    const team = await this.ensureTeam()
+    const list = team.custom_tags ?? []
+    if (list.some((x) => x.toLowerCase() === t.toLowerCase())) return team
+    return this.repo.update('teams', team.id, { custom_tags: [...list, t] })
+  }
+
+  async removeCustomTag(tag: string) {
+    const team = await this.ensureTeam()
+    return this.repo.update('teams', team.id, { custom_tags: (team.custom_tags ?? []).filter((x) => x.toLowerCase() !== tag.toLowerCase()) })
   }
 
   /** Append an event to a point (or insert after `afterId`). Updates the point's cached outcome. */
@@ -105,7 +139,8 @@ export class Actions {
     const point = await this.repo.get('points', pointId)
     if (!point) return
     const evs = liveOnly(await this.repo.db.events.where('point_id').equals(pointId).toArray()).sort((a, b) => a.seq - b.seq)
-    const outcome = outcomeOf(point.start_on, replayPoint(point.start_on, evs).scorer)
+    const st = point.missed_on_film === true ? missedState(point) : replayPoint(point.start_on, evs)
+    const outcome = outcomeOf(point.start_on, st.scorer)
     if (outcome !== point.outcome) await this.repo.update('points', pointId, { outcome })
   }
 

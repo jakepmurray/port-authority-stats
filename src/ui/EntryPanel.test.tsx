@@ -11,11 +11,12 @@ const players = [
 
 afterEach(cleanup)
 
-function setup(mode: 'full' | 'quick' = 'full') {
+function setup(mode: 'full' | 'quick' = 'full', askTags = false) {
   const b = builder().point('O', players.map((p) => p.id))
   const current = deriveGame(b.game, b.points, b.events).current!
   const onEvent = vi.fn(async () => {})
   const onUndo = vi.fn(async () => {})
+  const onTag = vi.fn(async (_id: string, _tags: string[]) => {})
   render(
     <EntryPanel
       game={b.game}
@@ -26,11 +27,14 @@ function setup(mode: 'full' | 'quick' = 'full') {
       video={null}
       onEvent={onEvent}
       onUndo={onUndo}
+      askTags={askTags}
+      tagChoices={['receiver error', 'difficult throw', 'great D', 'wind']}
+      onTag={onTag}
     />,
   )
   const key = (k: string) => act(() => void fireEvent.keyDown(window, { key: k }))
   const flush = () => act(async () => {})
-  return { onEvent, onUndo, key, flush }
+  return { onEvent, onUndo, onTag, key, flush }
 }
 
 const types = (fn: ReturnType<typeof vi.fn>) => fn.mock.calls.map((c) => (c as unknown[])[0] as { type: string; actor_id: string | null; receiver_id: string | null })
@@ -75,5 +79,45 @@ describe('EntryPanel keyboard flow', () => {
     act(() => void fireEvent.keyDown(input, { key: '2' }))
     await flush()
     expect(onEvent).not.toHaveBeenCalled()
+  })
+})
+
+describe('quick tag step after a turnover', () => {
+  const id = (fn: ReturnType<typeof vi.fn>, i: number) => ((fn.mock.calls[i] as unknown[])[0] as { id: string }).id
+
+  it('number keys toggle tags, Enter saves them on that event, then numbers mean players again', async () => {
+    const { onEvent, onTag, key, flush } = setup('full', true)
+    for (const k of ['2', 't', '1', '4', '2', '2', 'Enter', 'b', '3']) key(k)
+    await flush()
+    const ev = types(onEvent)
+    expect(ev.map((e) => e.type)).toEqual(['pickup', 'throwaway', 'D'])
+    expect(ev[1]).toMatchObject({ actor_id: 'b' }) // still the thrower's throwaway
+    expect(onTag).toHaveBeenCalledTimes(1)
+    expect(onTag.mock.calls[0]).toEqual([id(onEvent, 1), ['receiver error', 'wind']])
+  })
+
+  it('Esc skips; an action key saves what was picked and carries on', async () => {
+    const { onEvent, onTag, key, flush } = setup('full', true)
+    for (const k of ['2', 't', '1', 'Escape']) key(k)
+    await flush()
+    expect(onTag).not.toHaveBeenCalled()
+    // B 3 = our block → tag step; Enter with nothing picked saves nothing; then #3 picks up and hits #2.
+    for (const k of ['b', '3', 'Enter', '3', '2', 'Enter']) key(k)
+    await flush()
+    expect(types(onEvent).map((e) => e.type)).toEqual(['pickup', 'throwaway', 'D', 'pickup', 'catch'])
+    expect(onTag).not.toHaveBeenCalled()
+    // Throwaway, then B 4 block, pick "great D" (3), then X: saved before the next action.
+    for (const k of ['t', 'b', '4', '3', 'x']) key(k)
+    await flush()
+    expect(onTag).toHaveBeenCalledTimes(1) // the throwaway's step was left untouched by B; the block got 'great D'
+    expect(onTag.mock.calls[0]).toEqual([id(onEvent, 6), ['great D']])
+  })
+
+  it('no prompt when turned off, and none for non-turnovers', async () => {
+    const { onEvent, onTag, key, flush } = setup('full', false)
+    for (const k of ['2', 't', '1']) key(k)
+    await flush()
+    expect(onTag).not.toHaveBeenCalled()
+    expect(types(onEvent).map((e) => e.type)).toEqual(['pickup', 'throwaway'])
   })
 })

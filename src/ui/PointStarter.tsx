@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { checkLine, checkPuller, majorityOf, ratioForPoint } from '../domain/abba'
 import type { GameState } from '../domain/game'
-import type { Game, Player, Ratio, Side } from '../domain/schema'
+import type { Game, Player, Ratio, Side, TeamSide } from '../domain/schema'
 import { Badge, Btn, Select } from './kit'
 import { playerLabel } from './labels'
 
@@ -15,7 +15,7 @@ export function PointStarter({
   game: Game
   state: GameState
   players: Player[]
-  onStart: (o: { line: string[]; pulled_by: string | null; start_on: Side; ratio: Ratio }) => void
+  onStart: (o: { line: string[]; pulled_by: string | null; start_on: Side; ratio: Ratio; missed?: { result: TeamSide } }) => void
 }) {
   const roster = players.filter((p) => !p.deleted && p.active)
   const expected = state.next.ratio
@@ -137,6 +137,26 @@ export function PointStarter({
       >
         {hasError ? 'Start point anyway' : `Start point ${state.next.idx}`} (score {state.score.us}–{state.score.them})
       </Btn>
+      <div className="flex flex-wrap items-center gap-1 text-xs text-slate-400">
+        <span title="Camera cut, late start or missing footage. Counts in the score and team holds/breaks, not in player stats.">
+          Point {state.next.idx} not on film? Record the result:
+        </span>
+        {(['us', 'them'] as const).map((r) => (
+          <Btn
+            key={r}
+            size="sm"
+            tone="ghost"
+            onClick={() => {
+              onStart({ line, pulled_by: puller, start_on: startOn, ratio, missed: { result: r } })
+              setLine([])
+              setPuller(null)
+            }}
+          >
+            {r === 'us' ? 'We scored' : `${game.opponent} scored`}
+          </Btn>
+        ))}
+        <span className="text-slate-500">(line optional)</span>
+      </div>
     </div>
   )
 }

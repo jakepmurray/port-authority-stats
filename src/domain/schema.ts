@@ -33,6 +33,8 @@ export const TeamSchema = z.object({
   id,
   name: z.string().min(1),
   division: z.string().default('Mixed'),
+  /** Team-defined event tags, reusable across games (presets live in tags.ts). */
+  custom_tags: z.array(z.string()).default([]),
   ...meta,
 })
 export type Team = z.infer<typeof TeamSchema>
@@ -106,6 +108,10 @@ export const PointSchema = z.object({
   outcome: PointOutcome.default('none'), // cache; derived from events
   video_start: z.number().nonnegative().nullable().default(null),
   video_end: z.number().nonnegative().nullable().default(null),
+  /** Point not on the video (camera cut, late start): result is entered by hand, no events. */
+  missed_on_film: z.boolean().default(false),
+  /** Who scored, for points missed on film. */
+  manual_result: TeamSide.nullable().default(null),
   ...meta,
 })
 export type Point = z.infer<typeof PointSchema>

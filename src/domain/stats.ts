@@ -1,5 +1,6 @@
 import { deriveGame, META_TYPES, type GameState } from './game'
 import type { Game, GameEvent, Player, Point } from './schema'
+import { userTags } from './tags'
 
 /**
  * Stats are pure functions over the event log (PLAN.md §6). Definitions:
@@ -9,7 +10,13 @@ import type { Game, GameEvent, Player, Point } from './schema'
  * - Turnovers: throwaways + drops (charged to the receiver) + stalls + other turns.
  * - Plus/minus: goals + assists + Ds − turnovers.
  * - Yards: (y_end − y) for completions when coordinates exist, toward the attacking end zone.
+ * - Tags add context only: a throwaway tagged "receiver error" is still the thrower's
+ *   throwaway. turnover_tags counts charged turnovers by tag, then by type.
+ * - Points missed on film count toward the score and team hold/break numbers, but not
+ *   toward per-player points or any event-based rate (they are listed as points_missed).
  */
+/** tag → turnover type → count */
+export type TagBreakdown = Record<string, Record<string, number>>
 export interface PlayerStats {
   player_id: string
   points: number
@@ -33,6 +40,9 @@ export interface PlayerStats {
   plus_minus: number
   throw_yards: number
   recv_yards: number
+  /** On the line for points missed on film (not counted in `points`). */
+  points_missed: number
+  turnover_tags: TagBreakdown
 }
 
 export const emptyPlayerStats = (player_id: string): PlayerStats => ({
@@ -58,6 +68,8 @@ export const emptyPlayerStats = (player_id: string): PlayerStats => ({
   plus_minus: 0,
   throw_yards: 0,
   recv_yards: 0,
+  points_missed: 0,
+  turnover_tags: {},
 })
 
 export interface TeamStats {
@@ -85,6 +97,10 @@ export interface TeamStats {
   pulls_in: number
   pulls_ob: number
   pulls_brick: number
+  /** Points with a hand-entered result and no film (included in `points`). */
+  points_missed: number
+  /** Our turnovers by tag. */
+  turnover_tags: TagBreakdown
 }
 
 /** Opponent tracked at team totals only. */
@@ -96,6 +112,8 @@ export interface OpponentStats {
   holds: number
   breaks: number
   possessions: number
+  /** Their turnovers (incl. our Ds) by tag. */
+  turnover_tags: TagBreakdown
 }
 
 export interface GameStats {
@@ -106,6 +124,30 @@ export interface GameStats {
 }
 
 const ratio = (a: number, b: number) => (b > 0 ? a / b : null)
+/** Add an event's user tags to a breakdown under the given turnover type. */
+export function addTags(b: TagBreakdown, e: GameEvent, type: string = e.type, n = 1) {
+  for (const t of userTags(e.tags)) {
+    const row = (b[t] ??= {})
+    row[type] = (row[type] ?? 0) + n
+  }
+}
+
+/** Total per tag (all turnover types). */
+export const tagTotals = (b: TagBreakdown): [string, number][] =>
+  Object.entries(b)
+    .map(([t, row]) => [t, Object.values(row).reduce((a, c) => a + c, 0)] as [string, number])
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+
+export const formatTagBreakdown = (b: TagBreakdown) =>
+  tagTotals(b)
+    .map(([t, n]) => `${t}: ${n} (${Object.entries(b[t]).map(([k, v]) => `${k} ${v}`).join(', ')})`)
+    .join('; ')
+
+export function mergeTags(into: TagBreakdown, from: TagBreakdown) {
+  for (const [t, row] of Object.entries(from)) for (const [k, v] of Object.entries(row)) ((into[t] ??= {})[k] = (into[t][k] ?? 0) + v)
+  return into
+}
+
 const dy = (e: GameEvent) => (e.y !== null && e.y_end !== null ? e.y_end - e.y : 0)
 
 export function computeGameStats(game: Game, points: Point[], events: GameEvent[]): GameStats {
@@ -121,21 +163,37 @@ export function computeGameStats(game: Game, points: Point[], events: GameEvent[
     points: 0, o_points: 0, d_points: 0, holds: 0, breaks: 0, broken: 0, them_holds: 0,
     o_conversion: null, d_break_pct: null, goals: 0, completions: 0, turnovers: 0,
     turnovers_per_point: null, ds: 0, callahans: 0, possessions: 0, scoring_efficiency: null,
-    pulls: 0, pulls_in: 0, pulls_ob: 0, pulls_brick: 0,
+    pulls: 0, pulls_in: 0, pulls_ob: 0, pulls_brick: 0, points_missed: 0, turnover_tags: {},
   }
-  const opp: OpponentStats = { goals: 0, turnovers: 0, ds: 0, callahans: 0, holds: 0, breaks: 0, possessions: 0 }
+  const opp: OpponentStats = { goals: 0, turnovers: 0, ds: 0, callahans: 0, holds: 0, breaks: 0, possessions: 0, turnover_tags: {} }
+  /** Charge one of our turnovers: team breakdown always, player breakdown when known. */
+  const ourTurn = (e: GameEvent, s: PlayerStats | null, type: string = e.type) => {
+    team.turnovers++
+    addTags(team.turnover_tags, e, type)
+    if (s) addTags(s.turnover_tags, e, type)
+  }
+  const theirTurn = (e: GameEvent, type: string = e.type) => {
+    opp.turnovers++
+    addTags(opp.turnover_tags, e, type)
+  }
   let finishedO = 0
   let finishedD = 0
 
   for (const info of state.points) {
     const { point, events: evs, outcome } = info
+    const missed = point.missed_on_film === true
     const counted = evs.length > 0 || info.state.over
     if (!counted) continue
     team.points++
+    if (missed) team.points_missed++
     if (point.start_on === 'O') team.o_points++
     else team.d_points++
     for (const id of new Set(point.line)) {
       const s = P(id)!
+      if (missed) {
+        s.points_missed++
+        continue
+      }
       s.points++
       if (point.start_on === 'O') s.o_points++
       else s.d_points++
@@ -157,6 +215,7 @@ export function computeGameStats(game: Game, points: Point[], events: GameEvent[
     team.possessions += info.state.possessions.us
     opp.possessions += info.state.possessions.them
 
+    if (missed) continue // no event stats from points missed on film
     const play = evs.filter((e) => !META_TYPES.has(e.type))
     play.forEach((e, i) => {
       const us = e.team === 'us'
@@ -214,41 +273,41 @@ export function computeGameStats(game: Game, points: Point[], events: GameEvent[
           break
         case 'throwaway':
           if (us) {
-            team.turnovers++
             const t = P(e.actor_id)
+            ourTurn(e, t)
             if (t) {
               t.throwaways++
               t.throw_attempts++
             }
-          } else opp.turnovers++
+          } else theirTurn(e)
           break
         case 'drop':
           if (us) {
-            team.turnovers++
             const t = P(e.actor_id)
             const r = P(e.receiver_id)
+            ourTurn(e, r)
             if (t) t.throw_attempts++
             if (r) r.drops++
-          } else opp.turnovers++
+          } else theirTurn(e)
           break
         case 'stall':
         case 'turnover':
           if (us) {
-            team.turnovers++
             const s = P(e.actor_id)
+            ourTurn(e, s)
             if (s && e.type === 'stall') s.stalls++
             else if (s) s.other_turns++
-          } else opp.turnovers++
+          } else theirTurn(e)
           break
         case 'D':
           if (us) {
             team.ds++
-            opp.turnovers++
+            theirTurn(e)
             const s = P(e.defender_id)
             if (s) s.ds++
           } else {
             opp.ds++
-            team.turnovers++
+            ourTurn(e, null)
           }
           break
         case 'callahan':
@@ -256,7 +315,7 @@ export function computeGameStats(game: Game, points: Point[], events: GameEvent[
             team.goals++
             team.ds++
             team.callahans++
-            opp.turnovers++
+            theirTurn(e)
             const s = P(e.defender_id)
             if (s) {
               s.goals++
@@ -266,8 +325,8 @@ export function computeGameStats(game: Game, points: Point[], events: GameEvent[
           } else {
             opp.goals++
             opp.callahans++
-            team.turnovers++
             const t = P(e.actor_id)
+            ourTurn(e, t)
             if (t) {
               t.throwaways++
               t.throw_attempts++
@@ -287,7 +346,7 @@ export function computeGameStats(game: Game, points: Point[], events: GameEvent[
   }
   team.o_conversion = ratio(team.holds, finishedO)
   team.d_break_pct = ratio(team.breaks, finishedD)
-  team.turnovers_per_point = ratio(team.turnovers, team.points)
+  team.turnovers_per_point = ratio(team.turnovers, team.points - team.points_missed)
   team.scoring_efficiency = ratio(team.goals, team.possessions)
   return { state, players, team, opponent: opp }
 }
@@ -300,6 +359,10 @@ export function sumPlayerStats(list: PlayerStats[][]): Map<string, PlayerStats> 
       const acc = out.get(s.player_id) ?? emptyPlayerStats(s.player_id)
       for (const k of Object.keys(acc) as (keyof PlayerStats)[]) {
         if (k === 'player_id' || k === 'comp_pct') continue
+        if (k === 'turnover_tags') {
+          mergeTags(acc.turnover_tags, s.turnover_tags)
+          continue
+        }
         ;(acc[k] as number) += s[k] as number
       }
       out.set(s.player_id, acc)

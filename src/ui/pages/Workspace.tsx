@@ -5,10 +5,10 @@ import { capsDue } from '../../domain/game'
 import { parseClock } from '../../domain/time'
 import { EntryPanel } from '../EntryPanel'
 import { EventLog } from '../EventLog'
-import { useGameData, usePref } from '../hooks'
+import { useGameData, usePref, useTeam } from '../hooks'
 import { Badge, Btn } from '../kit'
 import { PointStarter } from '../PointStarter'
-import { PlayerStatsTable, TeamSummary } from '../StatsTables'
+import { PlayerStatsTable, TagBreakdownTable, TeamSummary } from '../StatsTables'
 import { VideoController } from '../video/controller'
 import { openPopout, useVideoStatus, type Layout } from '../video/popout'
 import { VideoPane } from '../video/VideoPane'
@@ -19,6 +19,8 @@ export function Workspace({ gameId }: { gameId: string }) {
   const { game, points, events, players, stats, loading } = useGameData(gameId)
   const [layoutPref, setLayout] = usePref<Layout>('layout', 'video')
   const [mode, setMode] = usePref<EntryMode>('mode', 'full')
+  const [askTags, setAskTags] = usePref<boolean>('askTags', true)
+  const { tags: tagChoices } = useTeam()
   const [tab, setTab] = useState<'entry' | 'stats'>('entry')
   const [manualTime, setManualTime] = useState('')
   const [video] = useState(() => new VideoController(gameId))
@@ -123,6 +125,9 @@ export function Workspace({ gameId }: { gameId: string }) {
           <Btn size="sm" tone={mode === 'quick' ? 'primary' : 'ghost'} onClick={() => setMode('quick')} title="Goals, assists, Ds and turns only">
             Quick
           </Btn>
+          <label className="ml-1 flex items-center gap-1 text-xs text-slate-300" title="After a turnover, offer a quick tag step (receiver error, wind…)">
+            <input type="checkbox" checked={askTags} onChange={(e) => setAskTags(e.target.checked)} /> Tag turns
+          </label>
           <a className="ml-1 text-xs text-sky-300 underline" href={`#/game/${game.id}/edit`}>
             Game settings
           </a>
@@ -168,6 +173,11 @@ export function Workspace({ gameId }: { gameId: string }) {
                     video={layout === 'stats' ? null : video}
                     onEvent={(d, t) => run(actions.addEvent(current.point.id, d, t)).then(() => undefined)}
                     onUndo={() => run(actions.undo(game.id)).then(() => undefined)}
+                    tagChoices={tagChoices}
+                    askTags={askTags}
+                    onTag={(id, tags) => run(actions.tagEvent(id, tags)).then(() => undefined)}
+                    onAddTag={(t) => run(actions.addCustomTag(t)).then(() => undefined)}
+                    onMissed={(r) => run(actions.setPointMissed(current.point.id, true, r)).then(() => undefined)}
                   />
                 ) : (
                   <PointStarter
@@ -175,17 +185,27 @@ export function Workspace({ gameId }: { gameId: string }) {
                     game={game}
                     state={st}
                     players={activePlayers}
-                    onStart={(o) => void run(actions.startPoint(game.id, { ...o, video_time: stamp().video_time }))}
+                    onStart={(o) => void run(actions.startPoint(game.id, { ...o, video_time: o.missed ? null : stamp().video_time }))}
                   />
                 )}
               </div>
               <div className="min-h-0 flex-1 overflow-auto p-2">
-                <EventLog game={game} state={st} allPoints={points} allEvents={events} players={players} onSeek={seek} stamp={stamp} />
+                <EventLog
+                  game={game}
+                  state={st}
+                  allPoints={points}
+                  allEvents={events}
+                  players={players}
+                  onSeek={seek}
+                  stamp={stamp}
+                  tagChoices={tagChoices}
+                />
               </div>
             </div>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-2">
               <TeamSummary team={stats.team} opp={stats.opponent} opponent={game.opponent} />
+              <TagBreakdownTable team={stats.team} opp={stats.opponent} players={[...stats.players.values()]} byId={new Map(players.map((p) => [p.id, p]))} opponent={game.opponent} />
               <PlayerStatsTable
                 stats={[...stats.players.values()]}
                 byId={new Map(players.map((p) => [p.id, p]))}

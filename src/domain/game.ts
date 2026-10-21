@@ -82,6 +82,18 @@ export function replayPoint(startOn: Side, events: GameEvent[]): PossessionState
   return s
 }
 
+/** A point missed on film: the result is entered by hand and its events are ignored for scoring. */
+export function missedState(point: Point): PossessionState {
+  const scorer = point.manual_result ?? null
+  return {
+    offense: point.start_on === 'O' ? 'us' : 'them',
+    holder: null,
+    over: scorer !== null,
+    scorer,
+    possessions: { us: 0, them: 0 },
+  }
+}
+
 export function outcomeOf(startOn: Side, scorer: TeamSide | null): PointOutcome {
   if (!scorer) return 'none'
   if (startOn === 'O') return scorer === 'us' ? 'hold' : 'broken'
@@ -141,7 +153,7 @@ export function deriveGame(game: Game, allPoints: Point[], allEvents: GameEvent[
   for (const point of points) {
     const events = byPoint.get(point.id) ?? []
     const half: 1 | 2 = halfReached ? 2 : 1
-    const state = replayPoint(point.start_on, events)
+    const state = point.missed_on_film === true ? missedState(point) : replayPoint(point.start_on, events)
     const before = { ...score }
     if (state.scorer) score[state.scorer]++
     const after = { ...score }

@@ -7,6 +7,7 @@ import type { Game, GameEvent, Player } from '../domain/schema'
 import { Btn } from './kit'
 import { EVENT_LABEL, playerLabel } from './labels'
 import { MiniStore } from './store'
+import { TAGGABLE_TURNOVERS, toggleTag } from '../domain/tags'
 import type { VideoController } from './video/controller'
 
 interface Pending {
@@ -15,6 +16,13 @@ interface Pending {
   filled: (string | null)[]
   time: TimeStamp
   extra?: Partial<Command>
+}
+
+/** The quick tag step after a turnover. */
+interface Tagging {
+  id: string
+  type: GameEvent['type']
+  tags: string[]
 }
 
 const SLOT_LABEL: Record<string, string> = {
@@ -38,6 +46,11 @@ export function EntryPanel({
   video,
   onEvent,
   onUndo,
+  tagChoices = [],
+  askTags = false,
+  onTag,
+  onAddTag,
+  onMissed,
 }: {
   game: Game
   current: PointInfo
@@ -47,18 +60,28 @@ export function EntryPanel({
   video: VideoController | null
   onEvent: (d: EventDraft & { note?: string; id?: string }, t: TimeStamp) => Promise<void>
   onUndo: () => Promise<void>
+  /** Tags offered in the quick tag step (presets + team custom tags). */
+  tagChoices?: string[]
+  /** Offer the quick tag step right after a turnover. */
+  askTags?: boolean
+  onTag?: (eventId: string, tags: string[]) => Promise<void>
+  onAddTag?: (tag: string) => Promise<void>
+  /** The rest of this point is not on the film: record who scored by hand. */
+  onMissed?: (result: 'us' | 'them') => Promise<void>
 }) {
   // Entry state lives in a ref so fast typing never reads a stale render.
   const [store] = useState(
-    () => new MiniStore<{ buffer: string; bufferTime: TimeStamp | null; pending: Pending | null; optimistic: GameEvent[] }>({
+    () => new MiniStore<{ buffer: string; bufferTime: TimeStamp | null; pending: Pending | null; optimistic: GameEvent[]; tagging: Tagging | null }>({
       buffer: '',
       bufferTime: null,
       pending: null,
       optimistic: [],
+      tagging: null,
     }),
   )
   const snap = useSyncExternalStore(store.subscribe, store.get)
   const [msg, setMsg] = useState<{ text: string; bad?: boolean } | null>(null)
+  const [missedAsk, setMissedAsk] = useState(false)
   const chain = useRef<Promise<unknown>>(Promise.resolve())
   const waitTimer = useRef<number | null>(null)
 
@@ -102,6 +125,33 @@ export function EntryPanel({
         suggested_player_ids: [], corrected: false, note: '', created_at: now, updated_at: now, edited_at: null, deleted: false, ...draft },
     ] })
     void queue(() => onEvent({ ...draft, id }, time))
+    if (askTags && onTag && TAGGABLE_TURNOVERS.has(draft.type)) store.set({ tagging: { id, type: draft.type, tags: [...draft.tags] } })
+    else store.set({ tagging: null })
+  }
+
+  /** Finish the tag step: save what was picked (Enter / next action) or drop it (Esc). */
+  const finishTags = (save: boolean) => {
+    const t = store.get().tagging
+    if (!t) return
+    store.set({ tagging: null })
+    if (!save || !onTag) return
+    const opt = store.get().optimistic
+    if (opt.some((e) => e.id === t.id)) store.set({ optimistic: opt.map((e) => (e.id === t.id ? { ...e, tags: t.tags } : e)) })
+    if (t.tags.length) {
+      void queue(() => onTag(t.id, t.tags))
+      say(`Tagged: ${t.tags.join(', ')}`)
+    }
+  }
+  const toggleChoice = (tag: string) => {
+    const t = store.get().tagging
+    if (t) store.set({ tagging: { ...t, tags: toggleTag(t.tags, tag) } })
+  }
+  const addCustom = (raw: string) => {
+    const tag = raw.trim().replace(/\s+/g, ' ')
+    if (!tag) return
+    const t = store.get().tagging
+    if (t && !t.tags.some((x) => x.toLowerCase() === tag.toLowerCase())) store.set({ tagging: { ...t, tags: [...t.tags, tag] } })
+    if (onAddTag) void onAddTag(tag)
   }
 
   const commit = (cmd: Command, time: TimeStamp) => {
@@ -120,6 +170,7 @@ export function EntryPanel({
   }
 
   const start = (kind: CommandKind, extra?: Partial<Command>) => {
+    finishTags(true)
     // A half-typed number ("2" while #23 exists) is taken as-is before the action.
     const buf = store.get().buffer
     if (buf) {
@@ -137,6 +188,7 @@ export function EntryPanel({
   }
 
   const fill = (id: string | null) => {
+    finishTags(true)
     const time = store.get().bufferTime
     clearBuffer()
     const pending = store.get().pending
@@ -197,6 +249,7 @@ export function EntryPanel({
   }
 
   const undo = () => {
+    store.set({ tagging: null })
     cancel()
     const opt = store.get().optimistic
     void queue(onUndo)
@@ -204,9 +257,9 @@ export function EntryPanel({
   }
 
   // Keep the latest handlers for the window listener.
-  const h = useRef({ typeDigit, enter, start, fill, undo, cancel, video })
+  const h = useRef({ typeDigit, enter, start, fill, undo, cancel, video, finishTags, toggleChoice, tagChoices })
   useEffect(() => {
-    h.current = { typeDigit, enter, start, fill, undo, cancel, video }
+    h.current = { typeDigit, enter, start, fill, undo, cancel, video, finishTags, toggleChoice, tagChoices }
   })
   useEffect(() => () => {
     if (waitTimer.current) window.clearTimeout(waitTimer.current)
@@ -224,6 +277,17 @@ export function EntryPanel({
       const k = e.key
       // Enter/Space must not also "click" a focused button (e.g. a player tile).
       if ((k === 'Enter' || k === ' ') && e.target instanceof HTMLButtonElement) e.preventDefault()
+      if (store.get().tagging) {
+        // Quick tag step: 1–9, 0 toggle tags; Enter saves; Esc skips; any action key saves and goes on.
+        if (/^\d$/.test(k)) {
+          const tag = c.tagChoices[k === '0' ? 9 : Number(k) - 1]
+          if (tag) c.toggleChoice(tag)
+          return
+        }
+        if (k === 'Enter') return c.finishTags(true)
+        if (k === 'Escape') return c.finishTags(false)
+        if (k === '-') return
+      }
       if (/^\d$/.test(k)) return c.typeDigit(k)
       if (k === 'Enter') return c.enter()
       if (k === 'Escape') return c.cancel()
@@ -253,10 +317,12 @@ export function EntryPanel({
     return () => window.removeEventListener('keydown', onKey)
   }, [current.point.pulled_by, store])
 
-  const { buffer, pending } = snap
+  const { buffer, pending, tagging } = snap
 
   const holder = st.holder ? byId.get(st.holder) : null
-  const promptText = pending
+  const promptText = tagging
+    ? `Tag this ${EVENT_LABEL[tagging.type].toLowerCase()}? Number keys toggle · Enter done · Esc skip`
+    : pending
     ? `${HOTKEYS.find((x) => x.kind === pending.kind)?.label ?? pending.kind}: ${SLOT_LABEL[pending.slots[pending.filled.length]]} #${buffer}▌`
     : buffer
       ? `#${buffer}▌ (Enter)`
@@ -287,6 +353,9 @@ export function EntryPanel({
         {promptText}
       </div>
       {msg && <div className={`text-xs ${msg.bad ? 'text-rose-300' : 'text-slate-400'}`}>{msg.text}</div>}
+      {tagging && (
+        <TagStep tagging={tagging} choices={tagChoices} onToggle={toggleChoice} onAdd={addCustom} onDone={() => finishTags(true)} onSkip={() => finishTags(false)} />
+      )}
       {linePlayers.length > 0 && (
         <div className="grid grid-cols-4 gap-1 sm:grid-cols-7 lg:grid-cols-4 xl:grid-cols-7">
           {linePlayers.map((p) => (
@@ -351,10 +420,88 @@ export function EntryPanel({
         >
           Note
         </Btn>
+        {onMissed && !missedAsk && (
+          <Btn size="sm" tone="ghost" onClick={() => setMissedAsk(true)} title="Camera cut or film ended: enter the result by hand">
+            Not on film…
+          </Btn>
+        )}
+        {onMissed && missedAsk && (
+          <span className="flex items-center gap-1 rounded border border-amber-800 px-1">
+            <span className="text-amber-200">Rest of point missed. Who scored?</span>
+            <Btn size="sm" tone="good" onClick={() => void onMissed('us')}>Us</Btn>
+            <Btn size="sm" tone="bad" onClick={() => void onMissed('them')}>{game.opponent}</Btn>
+            <Btn size="sm" tone="ghost" onClick={() => setMissedAsk(false)}>✕</Btn>
+          </span>
+        )}
         <Btn size="sm" tone="bad" className="ml-auto" onClick={undo} title="U, Backspace or Ctrl+Z">
           Undo
         </Btn>
       </div>
+    </div>
+  )
+}
+
+/** Chip row for the quick tag step. Context only: tags never change who is charged. */
+function TagStep({
+  tagging, choices, onToggle, onAdd, onDone, onSkip,
+}: {
+  tagging: Tagging
+  choices: string[]
+  onToggle: (t: string) => void
+  onAdd: (t: string) => void
+  onDone: () => void
+  onSkip: () => void
+}) {
+  const [custom, setCustom] = useState('')
+  const on = (t: string) => tagging.tags.some((x) => x.toLowerCase() === t.toLowerCase())
+  const extra = tagging.tags.filter((t) => !choices.some((c) => c.toLowerCase() === t.toLowerCase()))
+  return (
+    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-amber-800/70 bg-amber-950/30 p-2 text-xs" role="group" aria-label="Turnover tags">
+      {choices.map((t, i) => (
+        <button
+          type="button"
+          key={t}
+          onClick={() => onToggle(t)}
+          aria-pressed={on(t)}
+          className={`rounded-full border px-2 py-1 ${on(t) ? 'border-amber-400 bg-amber-700/60 text-white' : 'border-slate-700 bg-slate-800/60 text-slate-300 hover:bg-slate-700'}`}
+        >
+          {i < 10 && <kbd className="mr-1 font-mono text-[10px] text-slate-400">{(i + 1) % 10}</kbd>}
+          {t}
+        </button>
+      ))}
+      {extra.map((t) => (
+        <button type="button" key={t} aria-pressed onClick={() => onToggle(t)} className="rounded-full border border-amber-400 bg-amber-700/60 px-2 py-1 text-white">
+          {t}
+        </button>
+      ))}
+      <form
+        className="flex items-center gap-1"
+        onSubmit={(e) => {
+          e.preventDefault()
+          onAdd(custom)
+          setCustom('')
+          ;(document.activeElement as HTMLElement | null)?.blur()
+        }}
+      >
+        <input
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') (e.target as HTMLElement).blur()
+          }}
+          placeholder="+ new tag"
+          aria-label="New tag"
+          className="w-24 rounded border border-slate-700 bg-slate-900 px-1.5 py-1 text-xs"
+        />
+      </form>
+      <span className="ml-auto flex gap-1">
+        <Btn size="sm" tone="primary" onClick={onDone} title="Enter">
+          Done
+        </Btn>
+        <Btn size="sm" tone="ghost" onClick={onSkip} title="Esc">
+          Skip
+        </Btn>
+      </span>
     </div>
   )
 }

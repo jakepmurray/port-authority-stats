@@ -2,7 +2,8 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { db } from '../db/db'
 import { computeGameStats } from '../domain/stats'
-import type { Player } from '../domain/schema'
+import type { Player, Team } from '../domain/schema'
+import { tagChoices } from '../domain/tags'
 
 /** Hash routing: "#/game/abc/stats" → ['game', 'abc', 'stats']. */
 export function useRoute(): string[] {
@@ -65,4 +66,11 @@ export function usePref<T>(key: string, initial: T): [T, (v: T) => void] {
     }
   }
   return [v, set]
+}
+
+/** The tracked team (first live one) and its tag choices: presets + custom tags. */
+export function useTeam(): { team: Team | undefined; tags: string[] } {
+  const team = useLiveQuery(async () => (await db.teams.toArray()).find((t) => !t.deleted), [])
+  const tags = useMemo(() => tagChoices(team?.custom_tags), [team])
+  return { team, tags }
 }

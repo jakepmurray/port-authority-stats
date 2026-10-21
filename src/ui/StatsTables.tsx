@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { Player } from '../domain/schema'
-import type { OpponentStats, PlayerStats, TeamStats } from '../domain/stats'
+import { tagTotals, type OpponentStats, type PlayerStats, type TagBreakdown, type TeamStats } from '../domain/stats'
 import { pct } from './format'
 
 type Col = { key: keyof PlayerStats; label: string; title: string; fmt?: (v: number | null) => string }
@@ -26,9 +26,11 @@ const COLS: Col[] = [
 
 export function PlayerStatsTable({ stats, byId, showYards }: { stats: PlayerStats[]; byId: Map<string, Player>; showYards?: boolean }) {
   const [sort, setSort] = useState<keyof PlayerStats>('plus_minus')
-  const cols = showYards
+  let cols = showYards
     ? [...COLS, { key: 'throw_yards', label: 'TYd', title: 'Throwing yards' } as Col, { key: 'recv_yards', label: 'RYd', title: 'Receiving yards' } as Col]
     : COLS
+  if (stats.some((s) => s.points_missed > 0))
+    cols = [...cols.slice(0, 3), { key: 'points_missed', label: 'Miss', title: 'Points on the line but missed on film (not in Pts)' } as Col, ...cols.slice(3)]
   const rows = [...stats].sort((a, b) => ((b[sort] as number) ?? -1) - ((a[sort] as number) ?? -1))
   return (
     <div className="overflow-x-auto">
@@ -85,11 +87,63 @@ export function TeamSummary({ team, opp, opponent }: { team: TeamStats; opp: Opp
         {cell('Ds', team.ds)}
         {cell('Goals/poss', pct(team.scoring_efficiency), 'Scoring efficiency: goals per possession')}
         {cell('Pulls', `${team.pulls_in}/${team.pulls}`, `In / total (OB ${team.pulls_ob}, brick ${team.pulls_brick})`)}
+        {team.points_missed > 0 &&
+          cell('Missed on film', team.points_missed, 'Points with a hand-entered result. In the score and holds/breaks; not in player stats or per-point rates.')}
       </div>
       <div className="text-xs text-slate-400">
         <span className="font-semibold text-slate-300">{opponent}</span> (team totals): {opp.goals} goals · {opp.turnovers} turns · {opp.ds} Ds ·{' '}
         {opp.callahans} Callahans · {opp.holds} holds · {opp.breaks} breaks · {opp.possessions} possessions
       </div>
+    </div>
+  )
+}
+
+const TYPE_SHORT: Record<string, string> = { throwaway: 'TA', drop: 'drop', stall: 'stall', turnover: 'other', D: 'their D', callahan: 'Callahan' }
+const byType = (row: Record<string, number> | undefined, theirs = false) =>
+  row ? Object.entries(row).map(([k, v]) => `${v} ${theirs && k === 'D' ? 'our D' : (TYPE_SHORT[k] ?? k)}`).join(', ') : ''
+
+/** Turnovers broken down by tag: ours by type and player, theirs at team level. */
+export function TagBreakdownTable({
+  team, opp, players, byId, opponent,
+}: { team: TeamStats; opp: OpponentStats; players: PlayerStats[]; byId: Map<string, Player>; opponent: string }) {
+  const all: TagBreakdown = {}
+  for (const b of [team.turnover_tags, opp.turnover_tags]) for (const t of Object.keys(b)) all[t] ??= {}
+  const tags = Object.keys(all).sort(
+    (a, b) => (tagTotals(team.turnover_tags).find((x) => x[0] === b)?.[1] ?? 0) - (tagTotals(team.turnover_tags).find((x) => x[0] === a)?.[1] ?? 0) || a.localeCompare(b),
+  )
+  if (tags.length === 0) return <p className="text-xs text-slate-500">No tagged turnovers yet. Tags (receiver error, wind…) add context; they don’t change who is charged.</p>
+  const total = (row: Record<string, number> | undefined) => (row ? Object.values(row).reduce((a, c) => a + c, 0) : 0)
+  return (
+    <div className="overflow-x-auto">
+      <div className="mb-1 text-xs text-slate-400">Turnovers by tag (context only; each turnover is still charged as usual)</div>
+      <table className="w-full text-xs tabular-nums">
+        <thead className="bg-slate-900 text-slate-400">
+          <tr>
+            <th className="p-1 text-left">Tag</th>
+            <th className="p-1 text-right">Our turns</th>
+            <th className="p-1 text-left">By type</th>
+            <th className="p-1 text-left">By player</th>
+            <th className="p-1 text-right">{opponent} turns</th>
+          </tr>
+        </thead>
+        <tbody>
+          {tags.map((t) => {
+            const who = players
+              .filter((p) => total(p.turnover_tags[t]) > 0)
+              .sort((a, b) => total(b.turnover_tags[t]) - total(a.turnover_tags[t]))
+              .map((p) => `#${byId.get(p.player_id)?.number ?? '?'} ${byId.get(p.player_id)?.name ?? ''} ${byType(p.turnover_tags[t])}`)
+            return (
+              <tr key={t} className="border-t border-slate-800 align-top">
+                <td className="whitespace-nowrap p-1">{t}</td>
+                <td className="p-1 text-right">{total(team.turnover_tags[t])}</td>
+                <td className="p-1">{byType(team.turnover_tags[t])}</td>
+                <td className="p-1">{who.join(' · ')}</td>
+                <td className="p-1 text-right" title={byType(opp.turnover_tags[t], true)}>{total(opp.turnover_tags[t])}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
     </div>
   )
 }

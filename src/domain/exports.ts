@@ -1,7 +1,7 @@
 import { toCsv } from './csv'
 import { liveOnly } from './game'
 import type { Game, GameEvent, Player, Point } from './schema'
-import { computeGameStats, type PlayerStats } from './stats'
+import { computeGameStats, formatTagBreakdown, type PlayerStats } from './stats'
 
 export interface AllData {
   players: Player[]
@@ -18,8 +18,11 @@ export const ytLink = (g: Game, t: number | null) =>
   g.video.youtube_id && t !== null ? `https://youtu.be/${g.video.youtube_id}?t=${Math.floor(t)}` : ''
 
 export function playerStatRow(p: Player | undefined, s: PlayerStats) {
-  const { player_id, comp_pct, ...rest } = s
-  return { player_id, number: p?.number ?? '', name: p?.name ?? '', gender_match: p?.gender_match ?? '', ...rest, comp_pct: r3(comp_pct) }
+  const { player_id, comp_pct, turnover_tags, ...rest } = s
+  return {
+    player_id, number: p?.number ?? '', name: p?.name ?? '', gender_match: p?.gender_match ?? '', ...rest,
+    comp_pct: r3(comp_pct), turnover_tags: formatTagBreakdown(turnover_tags),
+  }
 }
 
 export function gamesCsv(d: AllData) {
@@ -30,7 +33,8 @@ export function gamesCsv(d: AllData) {
       score_us: s.state.score.us, score_them: s.state.score.them,
       result: s.state.over ? (s.state.winner === 'us' ? 'W' : s.state.winner === 'them' ? 'L' : 'T') : 'in progress',
       holds: s.team.holds, breaks: s.team.breaks, o_conversion: r3(s.team.o_conversion), d_break_pct: r3(s.team.d_break_pct),
-      turnovers: s.team.turnovers, opp_turnovers: s.opponent.turnovers, youtube: g.video.youtube_id ? `https://youtu.be/${g.video.youtube_id}` : '',
+      turnovers: s.team.turnovers, opp_turnovers: s.opponent.turnovers, points_missed_on_film: s.team.points_missed,
+      turnover_tags: formatTagBreakdown(s.team.turnover_tags), opp_turnover_tags: formatTagBreakdown(s.opponent.turnover_tags), youtube: g.video.youtube_id ? `https://youtu.be/${g.video.youtube_id}` : '',
     }
   })
   return toCsv(rows)
@@ -55,6 +59,7 @@ export function pointsCsv(d: AllData) {
       point_id: p.id, game_id: p.game_id, opponent: games.get(p.game_id)!.opponent, idx: p.idx,
       score_us: p.score_us, score_them: p.score_them, start_on: p.start_on, ratio: p.ratio, outcome: p.outcome,
       line: p.line.map((id) => num(byId, id)).join(' '), pulled_by: num(byId, p.pulled_by),
+      missed_on_film: p.missed_on_film ? 'yes' : '', manual_result: p.missed_on_film ? (p.manual_result ?? '') : '',
       video_start: p.video_start, video_end: p.video_end, edited: p.edited_at ? 'yes' : '',
     }))
   return toCsv(rows)
@@ -76,7 +81,7 @@ export function eventsCsv(d: AllData) {
         receiver_number: num(byId, e.receiver_id), receiver: nm(byId, e.receiver_id),
         defender_number: num(byId, e.defender_id), defender: nm(byId, e.defender_id),
         video_time: e.video_time === null ? '' : Math.round(e.video_time * 10) / 10, video_link: ytLink(g, e.video_time),
-        x: e.x, y: e.y, x_end: e.x_end, y_end: e.y_end, tags: e.tags, note: e.note, source: e.source,
+        x: e.x, y: e.y, x_end: e.x_end, y_end: e.y_end, tags: e.tags.join('; '), note: e.note, source: e.source,
         edited: e.edited_at ? 'yes' : '',
       }
     })

@@ -68,7 +68,11 @@ A free, open-source stat app for Port Authority (Mixed) that you use **while wat
    - An embedded YouTube player can't expose its pixels, so all analysis happens in the helper.
    - When you tap an event, the app suggests the likely players involved.
 4. **Later: learning from corrections.** Each accepted or changed suggestion is saved as a Correction. A small ranker (scikit-learn/LightGBM) is retrained after each game, and the detector is fine-tuned now and then.
-5. **Optional:**
+5. **Later: custom domain + access control.** Serve the app at `stats.portauthorityultimate.com` with Cloudflare Access in front (free for up to 50 users; sign in with an emailed one-time code or Google), so no password lives in the public code.
+   - GitHub Pages alone can't password-protect a site without GitHub Enterprise.
+   - Needs the domain's DNS on Cloudflare (free), or only the `stats` subdomain hosted there, or a move to Cloudflare Pages.
+   - The code stays public; the protection matters for the shared stats view.
+6. **Optional:**
    - A private Sheet behind Google sign-in.
    - A Capacitor Android APK.
 
