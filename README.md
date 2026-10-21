@@ -5,7 +5,7 @@ Paste a YouTube link, watch the game beside a stat panel, and every stat you ent
 
 **Try it:** https://jakepmurray.github.io/port-authority-stats/
 
-- Local-first PWA: data lives in your browser (IndexedDB). Installable, works offline (the video itself needs a connection).
+- Local-first PWA: data lives in your browser (IndexedDB). Installable, works offline (the video itself needs a connection). When a new version is deployed, a "New version available" bar appears: click Reload to switch (your data is kept).
 - Free tools only. MIT licensed. See [PLAN.md](PLAN.md) for the roadmap.
 
 ## How to use

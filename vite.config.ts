@@ -13,7 +13,9 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // 'prompt': a new deploy waits until the user clicks Reload (see src/ui/UpdatePrompt.tsx),
+      // so nobody is stuck on a cached build and nobody loses a half-typed edit to a surprise reload.
+      registerType: 'prompt',
       includeAssets: ['favicon.svg'],
       manifest: {
         name: 'Port Authority Stats',

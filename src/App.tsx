@@ -12,6 +12,7 @@ import { Season } from './ui/pages/Season'
 import { Workspace } from './ui/pages/Workspace'
 import { Settings } from './ui/pages/Settings'
 import { SyncBadge } from './ui/SyncBadge'
+import { UpdatePrompt } from './ui/UpdatePrompt'
 import { startSync } from './sync'
 
 function EditGame({ id }: { id: string }) {
@@ -64,6 +65,7 @@ export default function App() {
           GitHub
         </a>
       </header>
+      <UpdatePrompt />
       <main className="flex min-h-0 flex-1 flex-col overflow-auto">{page}</main>
     </div>
   )
