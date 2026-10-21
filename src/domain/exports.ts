@@ -18,10 +18,11 @@ export const ytLink = (g: Game, t: number | null) =>
   g.video.youtube_id && t !== null ? `https://youtu.be/${g.video.youtube_id}?t=${Math.floor(t)}` : ''
 
 export function playerStatRow(p: Player | undefined, s: PlayerStats) {
-  const { player_id, comp_pct, turnover_tags, ...rest } = s
+  const { player_id, comp_pct, turnover_tags, calls_made_by, calls_against_by, ...rest } = s
   return {
     player_id, number: p?.number ?? '', name: p?.name ?? '', gender_match: p?.gender_match ?? '', ...rest,
     comp_pct: r3(comp_pct), turnover_tags: formatTagBreakdown(turnover_tags),
+    calls_made_by: formatTagBreakdown(calls_made_by), calls_against_by: formatTagBreakdown(calls_against_by),
   }
 }
 
@@ -34,7 +35,9 @@ export function gamesCsv(d: AllData) {
       result: s.state.over ? (s.state.winner === 'us' ? 'W' : s.state.winner === 'them' ? 'L' : 'T') : 'in progress',
       holds: s.team.holds, breaks: s.team.breaks, o_conversion: r3(s.team.o_conversion), d_break_pct: r3(s.team.d_break_pct),
       turnovers: s.team.turnovers, opp_turnovers: s.opponent.turnovers, points_missed_on_film: s.team.points_missed, subs: s.team.subs, injury_subs: s.team.injury_subs,
-      turnover_tags: formatTagBreakdown(s.team.turnover_tags), opp_turnover_tags: formatTagBreakdown(s.opponent.turnover_tags), youtube: g.video.youtube_id ? `https://youtu.be/${g.video.youtube_id}` : '',
+      turnover_tags: formatTagBreakdown(s.team.turnover_tags),
+      calls_by_us: s.team.calls_made, calls_by_them: s.team.calls_against,
+      calls_by_us_detail: formatTagBreakdown(s.team.calls_made_by), calls_by_them_detail: formatTagBreakdown(s.team.calls_against_by), opp_turnover_tags: formatTagBreakdown(s.opponent.turnover_tags), youtube: g.video.youtube_id ? `https://youtu.be/${g.video.youtube_id}` : '',
     }
   })
   return toCsv(rows)
@@ -81,6 +84,8 @@ export function eventsCsv(d: AllData) {
         receiver_number: num(byId, e.receiver_id), receiver: nm(byId, e.receiver_id),
         defender_number: num(byId, e.defender_id), defender: nm(byId, e.defender_id),
         video_time: e.video_time === null ? '' : Math.round(e.video_time * 10) / 10, video_link: ytLink(g, e.video_time),
+        call_kind: e.call?.kind ?? '', call_outcome: e.call?.outcome ?? '',
+        call_turnover_by: e.call?.turnover_team ?? '', call_charged_number: num(byId, e.call?.charged_id ?? null),
         x: e.x, y: e.y, x_end: e.x_end, y_end: e.y_end, tags: e.tags.join('; '), note: e.note, source: e.source,
         edited: e.edited_at ? 'yes' : '',
       }

@@ -26,6 +26,7 @@ Paste a YouTube link, watch the game beside a stat panel, and every stat you ent
 | `C` | Callahan. |
 | `P` | Pull (in). OB / brick buttons on screen. |
 | `R` | Mid-point sub: number of who comes off, then who comes on (`I` = injury sub, `Enter` saves, `-` unknown). |
+| `F` | Call: `1–8` type (foul, travel, pick, strip, contact, stall, offside, other), `U`/`T` who called it, our player's number (`Enter` skips), then `1–5` outcome (contested, uncontested, retracted, disc back to thrower, turnover), which saves. |
 | `-` | Unknown player for the current slot. |
 | `U`, `Backspace`, `Ctrl+Z` | Undo. `Esc` cancels a half-typed command. |
 | `Space`, `←`/`→` (`Shift` = 1 s), `[` / `]` | Play/pause, seek ±5 s, 0.5× / 1× speed. |
@@ -59,6 +60,11 @@ Paste a YouTube link, watch the game beside a stat panel, and every stat you ent
   partial point (`Part`), so you can tell full points from part points. Stats go to whoever made the play. If the player
   coming off had the disc, the player coming on takes it (same count). Who is on the line is recomputed from the subs,
   so editing or deleting a sub fixes every later event. A sub that breaks the point's ratio is recorded with a warning.
+- Calls: counted per team and per player, by type and outcome. *Calls* = calls the player made, *CallOn* = calls made on
+  the player (opponent players aren't on the roster, so their side is team-level only). A call only changes possession when
+  its outcome is *turnover*: the call itself is the turnover event (the team with the disc loses it; ours is charged to the
+  player holding the disc, shown as a call turnover in *Turns*). So don't also press `T`. Delete or edit the call and
+  possession and stats follow.
 - Turnovers by tag: each tagged turnover, by type, for the team and per player (and the opponent's turns by tag).
   Tags never move the turnover to someone else.
 - Points missed on film count in the score and in holds/breaks, but not in per-player points or event stats, and not in

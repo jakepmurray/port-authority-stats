@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import type { Player } from '../domain/schema'
-import { tagTotals, type OpponentStats, type PlayerStats, type TagBreakdown, type TeamStats } from '../domain/stats'
+import { tagTotals, type CallBreakdown, type OpponentStats, type PlayerStats, type TagBreakdown, type TeamStats } from '../domain/stats'
+import { CALL_KIND_LABEL, CALL_OUTCOME_LABEL } from './labels'
+import type { CallKind, CallOutcome } from '../domain/schema'
 import { pct } from './format'
 
 type Col = { key: keyof PlayerStats; label: string; title: string; fmt?: (v: number | null) => string }
@@ -31,6 +33,12 @@ export function PlayerStatsTable({ stats, byId, showYards }: { stats: PlayerStat
     : COLS
   if (stats.some((s) => s.partial_points > 0))
     cols = [...cols.slice(0, 3), { key: 'partial_points', label: 'Part', title: 'Points where the player subbed in or out mid-point (also in Pts)' } as Col, ...cols.slice(3)]
+  if (stats.some((s) => s.calls_made + s.calls_against > 0))
+    cols = [
+      ...cols,
+      { key: 'calls_made', label: 'Calls', title: 'Calls this player made' } as Col,
+      { key: 'calls_against', label: 'CallOn', title: 'Calls made on this player' } as Col,
+    ]
   if (stats.some((s) => s.points_missed > 0))
     cols = [...cols.slice(0, 3), { key: 'points_missed', label: 'Miss', title: 'Points on the line but missed on film (not in Pts)' } as Col, ...cols.slice(3)]
   const rows = [...stats].sort((a, b) => ((b[sort] as number) ?? -1) - ((a[sort] as number) ?? -1))
@@ -145,6 +153,55 @@ export function TagBreakdownTable({
               </tr>
             )
           })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+const callTotal = (b: CallBreakdown, k?: string) =>
+  Object.entries(b).filter(([kk]) => !k || kk === k).reduce((a, [, row]) => a + Object.values(row).reduce((x, y) => x + y, 0), 0)
+const outcomes = (row: Record<string, number> | undefined) =>
+  row ? Object.entries(row).map(([o, n]) => `${n} ${CALL_OUTCOME_LABEL[o as CallOutcome] ?? o}`).join(', ') : ''
+
+/** Calls by kind and outcome: made by us and made on us; who on our side made or drew them. */
+export function CallsTable({ team, players, byId, opponent }: { team: TeamStats; players: PlayerStats[]; byId: Map<string, Player>; opponent: string }) {
+  if (team.calls_made + team.calls_against === 0) return null
+  const kinds = [...new Set([...Object.keys(team.calls_made_by), ...Object.keys(team.calls_against_by)])]
+  const who = (k: string, side: 'calls_made_by' | 'calls_against_by') =>
+    players
+      .filter((p) => callTotal(p[side], k) > 0)
+      .map((p) => `#${byId.get(p.player_id)?.number ?? '?'} ${callTotal(p[side], k)}`)
+      .join(' · ')
+  return (
+    <div className="overflow-x-auto">
+      <div className="mb-1 text-xs text-slate-400">
+        Calls: {team.calls_made} by us · {team.calls_against} by {opponent}. Only turnover outcomes count as turnovers.
+      </div>
+      <table className="w-full text-xs tabular-nums">
+        <thead className="bg-slate-900 text-slate-400">
+          <tr>
+            <th className="p-1 text-left">Call</th>
+            <th className="p-1 text-right">By us</th>
+            <th className="p-1 text-left">Outcomes</th>
+            <th className="p-1 text-left">Caller</th>
+            <th className="p-1 text-right">By {opponent}</th>
+            <th className="p-1 text-left">Outcomes</th>
+            <th className="p-1 text-left">Called on</th>
+          </tr>
+        </thead>
+        <tbody>
+          {kinds.map((k) => (
+            <tr key={k} className="border-t border-slate-800 align-top">
+              <td className="whitespace-nowrap p-1">{CALL_KIND_LABEL[k as CallKind] ?? k}</td>
+              <td className="p-1 text-right">{callTotal(team.calls_made_by, k)}</td>
+              <td className="p-1">{outcomes(team.calls_made_by[k])}</td>
+              <td className="p-1">{who(k, 'calls_made_by')}</td>
+              <td className="p-1 text-right">{callTotal(team.calls_against_by, k)}</td>
+              <td className="p-1">{outcomes(team.calls_against_by[k])}</td>
+              <td className="p-1">{who(k, 'calls_against_by')}</td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>

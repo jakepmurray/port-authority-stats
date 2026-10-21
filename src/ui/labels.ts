@@ -1,11 +1,18 @@
-import type { GameEvent, Player } from '../domain/schema'
+import type { CallKind, CallOutcome, GameEvent, Player } from '../domain/schema'
 
 export const playerLabel = (p: Player | undefined | null) => (p ? `#${p.number} ${p.name}` : '?')
 
 export const EVENT_LABEL: Record<GameEvent['type'], string> = {
   pull: 'Pull', pickup: 'Pickup', catch: 'Pass', throw: 'Throw', turnover: 'Turnover', drop: 'Drop',
   throwaway: 'Throwaway', stall: 'Stall', D: 'Block', callahan: 'Callahan', goal: 'Goal', timeout: 'Timeout',
-  sub: 'Sub', injury: 'Injury sub', half: 'Half', cap: 'Cap', note: 'Note',
+  sub: 'Sub', injury: 'Injury sub', call: 'Call', half: 'Half', cap: 'Cap', note: 'Note',
+}
+
+export const CALL_KIND_LABEL: Record<CallKind, string> = {
+  foul: 'Foul', travel: 'Travel', pick: 'Pick', strip: 'Strip', contact: 'Contact', stall: 'Stall (contested count)', offside: 'Offside', other: 'Other',
+}
+export const CALL_OUTCOME_LABEL: Record<CallOutcome, string> = {
+  contested: 'contested', uncontested: 'uncontested', retracted: 'retracted', back_to_thrower: 'disc back to thrower', turnover: 'turnover',
 }
 
 /** One-line human description of an event. */
@@ -37,6 +44,18 @@ export function describeEvent(e: GameEvent, byId: Map<string, Player>, opponent 
     case 'injury':
       if (them) return `${opponent} ${e.type === 'injury' ? 'injury sub' : 'sub'}`
       return `${e.type === 'injury' ? 'Injury sub' : 'Sub'}: ${n(e.actor_id)} off → ${n(e.receiver_id)} on`
+    case 'call': {
+      if (!e.call) return 'Call'
+      const by = them ? opponent : e.actor_id ? n(e.actor_id) : 'us'
+      const on = them ? (e.receiver_id ? n(e.receiver_id) : 'us') : opponent
+      const result =
+        e.call.outcome !== 'turnover'
+          ? CALL_OUTCOME_LABEL[e.call.outcome]
+          : e.call.turnover_team === 'them'
+            ? `${opponent} turnover`
+            : `our turnover${e.call.charged_id ? ` (${n(e.call.charged_id)})` : ''}`
+      return `${CALL_KIND_LABEL[e.call.kind].replace(/ \(.*\)/, '')} called by ${by} on ${on}: ${result}`
+    }
     case 'timeout':
       return `Timeout ${them ? opponent : 'us'}`
     case 'cap':

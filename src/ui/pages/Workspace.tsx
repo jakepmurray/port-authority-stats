@@ -8,7 +8,7 @@ import { EventLog } from '../EventLog'
 import { useGameData, usePref, useTeam } from '../hooks'
 import { Badge, Btn } from '../kit'
 import { PointStarter } from '../PointStarter'
-import { PlayerStatsTable, TagBreakdownTable, TeamSummary } from '../StatsTables'
+import { CallsTable, PlayerStatsTable, TagBreakdownTable, TeamSummary } from '../StatsTables'
 import { VideoController } from '../video/controller'
 import { openPopout, useVideoStatus, type Layout } from '../video/popout'
 import { VideoPane } from '../video/VideoPane'
@@ -156,7 +156,7 @@ export function Workspace({ gameId }: { gameId: string }) {
               Stats
             </Btn>
             <span className="ml-auto hidden self-center text-[11px] text-slate-500 sm:inline">
-              Keys: 0–9 player · G T D B C S X P · U undo · Space play · ←/→ 5 s
+              Keys: 0–9 player · G T D B C S X P · R sub · F call · U undo · Space play · ←/→ 5 s
             </span>
           </div>
           {tab === 'entry' ? (
@@ -205,6 +205,7 @@ export function Workspace({ gameId }: { gameId: string }) {
           ) : (
             <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-2">
               <TeamSummary team={stats.team} opp={stats.opponent} opponent={game.opponent} />
+              <CallsTable team={stats.team} players={[...stats.players.values()]} byId={new Map(players.map((p) => [p.id, p]))} opponent={game.opponent} />
               <TagBreakdownTable team={stats.team} opp={stats.opponent} players={[...stats.players.values()]} byId={new Map(players.map((p) => [p.id, p]))} opponent={game.opponent} />
               <PlayerStatsTable
                 stats={[...stats.players.values()]}

@@ -18,7 +18,7 @@ export type Command =
 
 export type CommandKind = Command['kind']
 
-export type EventDraft = Pick<GameEvent, 'type' | 'team' | 'actor_id' | 'receiver_id' | 'defender_id' | 'tags'>
+export type EventDraft = Pick<GameEvent, 'type' | 'team' | 'actor_id' | 'receiver_id' | 'defender_id' | 'tags'> & { call?: GameEvent['call'] }
 
 export type BuildResult = { ok: true; event: EventDraft } | { ok: false; error: string }
 

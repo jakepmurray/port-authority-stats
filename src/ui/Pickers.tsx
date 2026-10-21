@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useNumberBuffer, usePickerKeys } from './pickerKeys'
 import type { LineIssue } from '../domain/abba'
-import type { Player } from '../domain/schema'
+import { CallKind, CallOutcome, type Player, type TeamSide } from '../domain/schema'
 import { Btn } from './kit'
-import { playerLabel } from './labels'
+import { CALL_KIND_LABEL, CALL_OUTCOME_LABEL, playerLabel } from './labels'
 
 const chip = (on: boolean) =>
   `rounded-lg border px-2 py-1 text-left text-xs ${on ? 'border-amber-400 bg-amber-700/60 text-white' : 'border-slate-700 bg-slate-800/60 hover:bg-slate-700'}`
@@ -86,6 +86,111 @@ export function SubPicker({
           </Btn>
         )}
         <Btn size="sm" tone="ghost" onClick={onCancel}>
+          Cancel
+        </Btn>
+      </div>
+    </div>
+  )
+}
+
+const KINDS = CallKind.options
+const OUTCOMES = CallOutcome.options
+
+export interface CallPick {
+  kind: CallKind
+  team: TeamSide
+  player: string | null
+  outcome: CallOutcome
+}
+
+/**
+ * Call picker, keyboard-first: 1–8 call type, U/T who called it, our player's number
+ * (Enter skips), then 1–5 outcome, which saves.
+ */
+export function CallPicker({
+  line, opponent, onSave, onCancel,
+}: {
+  line: Player[]
+  opponent: string
+  onSave: (c: CallPick) => void
+  onCancel: () => void
+}) {
+  const [kind, setKind] = useState<CallKind | null>(null)
+  const [team, setTeam] = useState<TeamSide | null>(null)
+  const [player, setPlayer] = useState<string | null | undefined>(undefined)
+  const step: 'kind' | 'team' | 'player' | 'outcome' = !kind ? 'kind' : !team ? 'team' : player === undefined ? 'player' : 'outcome'
+  const nb = useNumberBuffer(line, (id) => setPlayer(id))
+  const save = (outcome: CallOutcome) => {
+    if (kind && team) onSave({ kind, team, player: player ?? null, outcome })
+  }
+
+  usePickerKeys((e) => {
+    const k = e.key
+    if (k === 'Escape') return onCancel()
+    if (k === 'Backspace') {
+      if (nb.back()) return
+      if (step === 'outcome') return setPlayer(undefined)
+      if (step === 'player') return setTeam(null)
+      if (step === 'team') return setKind(null)
+      return onCancel()
+    }
+    if (step === 'kind' && /^[1-8]$/.test(k)) return setKind(KINDS[Number(k) - 1])
+    if (step === 'team' && /^[ut]$/i.test(k)) return setTeam(k.toLowerCase() === 'u' ? 'us' : 'them')
+    if (step === 'player') {
+      if (/^\d$/.test(k)) return void nb.digit(k)
+      if (k === 'Enter') return nb.enter() ? undefined : setPlayer(null)
+      if (k === '-') return setPlayer(null)
+    }
+    if (step === 'outcome' && /^[1-5]$/.test(k)) return save(OUTCOMES[Number(k) - 1])
+    return false
+  })
+
+  const opt = (key: string, label: string, on: boolean, click: () => void) => (
+    <button type="button" key={key} className={chip(on)} onClick={click}>
+      <kbd className="mr-1 font-mono text-[10px] text-slate-400">{key}</kbd>
+      {label}
+    </button>
+  )
+  const playerQ = team === 'us' ? 'Which of our players called it?' : `Called on which of our players?`
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-violet-800 bg-violet-950/40 p-2 text-xs" role="dialog" aria-label="Call">
+      <div className="font-mono text-sm text-violet-200">
+        Call: {kind ? CALL_KIND_LABEL[kind] : '…'} · by {team ? (team === 'us' ? 'us' : opponent) : '…'}
+        {team && ` · ${team === 'us' ? 'caller' : 'on'} ${player === undefined ? (nb.buf ? `#${nb.buf}▌` : '…') : player ? playerLabel(line.find((p) => p.id === player)) : 'unknown'}`}
+      </div>
+      {step === 'kind' && (
+        <div className="flex flex-wrap gap-1">{KINDS.map((c, i) => opt(String(i + 1), CALL_KIND_LABEL[c], kind === c, () => setKind(c)))}</div>
+      )}
+      {step === 'team' && (
+        <div className="flex flex-wrap gap-1">
+          {opt('U', 'We called it', false, () => setTeam('us'))}
+          {opt('T', `${opponent} called it`, false, () => setTeam('them'))}
+        </div>
+      )}
+      {step === 'player' && (
+        <>
+          <div className="text-slate-400">{playerQ} Type the number or tap; Enter to skip.</div>
+          <div className="grid grid-cols-3 gap-1 sm:grid-cols-4">
+            {line.map((p) => (
+              <button type="button" key={p.id} className={chip(false)} onClick={() => setPlayer(p.id)}>
+                <span className="font-mono">#{p.number}</span> {p.name}
+              </button>
+            ))}
+            <button type="button" className={chip(false)} onClick={() => setPlayer(null)}>
+              Skip
+            </button>
+          </div>
+        </>
+      )}
+      {step === 'outcome' && (
+        <>
+          <div className="text-slate-400">Outcome (saves). Only “turnover” changes possession; don’t also press T.</div>
+          <div className="flex flex-wrap gap-1">{OUTCOMES.map((o, i) => opt(String(i + 1), CALL_OUTCOME_LABEL[o], false, () => save(o)))}</div>
+        </>
+      )}
+      <div className="flex gap-1 text-slate-500">
+        Backspace back · Esc cancel
+        <Btn size="sm" tone="ghost" className="ml-auto" onClick={onCancel}>
           Cancel
         </Btn>
       </div>

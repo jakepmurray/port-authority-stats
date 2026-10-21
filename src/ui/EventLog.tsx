@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { actions } from '../db/actions'
 import { checkLine } from '../domain/abba'
 import type { GameState } from '../domain/game'
-import { EventType, type Game, type GameEvent, type Player, type Point } from '../domain/schema'
+import { CallKind, CallOutcome, EventType, type Call, type Game, type GameEvent, type Player, type Point } from '../domain/schema'
 import { formatClock, parseClock } from '../domain/time'
 import { Badge, Btn, Input, Select } from './kit'
-import { describeEvent, EVENT_LABEL, playerLabel } from './labels'
+import { CALL_KIND_LABEL, CALL_OUTCOME_LABEL, describeEvent, EVENT_LABEL, playerLabel } from './labels'
 import { toggleTag, userTags } from '../domain/tags'
 import { isSub, lineAfterSub, lineTimeline, subRatioIssues } from '../domain/subs'
 
@@ -200,6 +200,15 @@ function PlayerSelect({ label, value, players, onChange }: { label: string; valu
   )
 }
 
+const DEFAULT_CALL: Call = { kind: 'foul', outcome: 'contested', turnover_team: null, charged_id: null }
+/** Normalise a call before saving: only a turnover keeps turnover_team / charged_id. */
+function callFor(c: Call | null, caller: GameEvent['team']): Call {
+  const call = c ?? DEFAULT_CALL
+  if (call.outcome !== 'turnover') return { ...call, turnover_team: null, charged_id: null }
+  const lost = call.turnover_team ?? (caller === 'us' ? 'them' : 'us')
+  return { ...call, turnover_team: lost, charged_id: lost === 'us' ? call.charged_id : null }
+}
+
 /** Edit an existing event, or create one (pointId + afterId; afterId '' = start of point). */
 export function EventEditor({
   game,
@@ -228,6 +237,7 @@ export function EventEditor({
     defender_id: event?.defender_id ?? null,
     tags: event?.tags ?? ([] as string[]),
     newTag: '',
+    call: event?.call ?? null,
     note: event?.note ?? '',
     time: event ? formatClock(event.video_time).replace('–', '') : '',
   }))
@@ -240,6 +250,7 @@ export function EventEditor({
     const fields = {
       type: d.type, team: d.team, actor_id: d.actor_id, receiver_id: d.receiver_id, defender_id: d.defender_id,
       tags: d.newTag.trim() ? toggleTag(d.tags, d.newTag.trim()) : d.tags, note: d.note,
+      call: d.type === 'call' ? callFor(d.call, d.team) : null,
     }
     try {
       if (d.newTag.trim()) await actions.addCustomTag(d.newTag)
@@ -323,14 +334,52 @@ export function EventEditor({
           )
         })}
       </div>
+      {d.type === 'call' && (
+        <div className="col-span-full grid grid-cols-2 gap-2 rounded border border-violet-900 p-2 sm:grid-cols-4">
+          <label className="flex flex-col gap-0.5 text-xs text-slate-400">
+            Call
+            <Select value={(d.call ?? DEFAULT_CALL).kind} onChange={(e) => set('call', { ...(d.call ?? DEFAULT_CALL), kind: e.target.value as Call['kind'] })}>
+              {CallKind.options.map((k) => (
+                <option key={k} value={k}>{CALL_KIND_LABEL[k]}</option>
+              ))}
+            </Select>
+          </label>
+          <label className="flex flex-col gap-0.5 text-xs text-slate-400">
+            Outcome
+            <Select value={(d.call ?? DEFAULT_CALL).outcome} onChange={(e) => set('call', { ...(d.call ?? DEFAULT_CALL), outcome: e.target.value as Call['outcome'] })}>
+              {CallOutcome.options.map((k) => (
+                <option key={k} value={k}>{CALL_OUTCOME_LABEL[k]}</option>
+              ))}
+            </Select>
+          </label>
+          {d.call?.outcome === 'turnover' && (
+            <>
+              <label className="flex flex-col gap-0.5 text-xs text-slate-400">
+                Disc lost by
+                <Select
+                  value={d.call.turnover_team ?? (d.team === 'us' ? 'them' : 'us')}
+                  onChange={(e) => set('call', { ...d.call!, turnover_team: e.target.value as Call['turnover_team'] })}
+                >
+                  <option value="us">Us</option>
+                  <option value="them">{game.opponent}</option>
+                </Select>
+              </label>
+              <PlayerSelect label="Turnover charged to" value={d.call.charged_id} players={players} onChange={(v) => set('call', { ...d.call!, charged_id: v })} />
+            </>
+          )}
+          <p className="col-span-full text-[11px] text-slate-500">
+            Team = who made the call. Our player: “Actor” if we called it, “Receiver” if it was called on us. A turnover call is the only turnover event; don’t add a separate one.
+          </p>
+        </div>
+      )}
       <PlayerSelect
-        label={d.type === 'sub' || d.type === 'injury' ? 'Coming off' : 'Actor / thrower'}
+        label={d.type === 'sub' || d.type === 'injury' ? 'Coming off' : d.type === 'call' ? 'Called by (ours)' : 'Actor / thrower'}
         value={d.actor_id}
         players={players}
         onChange={(v) => set('actor_id', v)}
       />
       <PlayerSelect
-        label={d.type === 'sub' || d.type === 'injury' ? 'Coming on' : 'Receiver'}
+        label={d.type === 'sub' || d.type === 'injury' ? 'Coming on' : d.type === 'call' ? 'Called on (ours)' : 'Receiver'}
         value={d.receiver_id}
         players={players}
         onChange={(v) => set('receiver_id', v)}

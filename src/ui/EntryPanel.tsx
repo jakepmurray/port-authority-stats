@@ -9,7 +9,7 @@ import { EVENT_LABEL, playerLabel } from './labels'
 import { MiniStore } from './store'
 import { TAGGABLE_TURNOVERS, toggleTag } from '../domain/tags'
 import { lineAfterSub, lineTimeline, subRatioIssues } from '../domain/subs'
-import { SubPicker } from './Pickers'
+import { CallPicker, SubPicker, type CallPick } from './Pickers'
 import type { VideoController } from './video/controller'
 
 interface Pending {
@@ -22,7 +22,7 @@ interface Pending {
 
 /** A picker that owns the keyboard while open; time is stamped when it opens. */
 interface Modal {
-  kind: 'sub'
+  kind: 'sub' | 'call'
   time: TimeStamp
 }
 
@@ -135,10 +135,11 @@ export function EntryPanel({
       ...store.get().optimistic,
       { id, game_id: game.id, point_id: current.point.id, possession_id: null, seq, x: null, y: null, x_end: null, y_end: null,
         video_time: time.video_time, time_source: time.time_source, wall_time: now, source: 'film', confidence: null,
-        suggested_player_ids: [], corrected: false, note: '', created_at: now, updated_at: now, edited_at: null, deleted: false, ...draft },
+        suggested_player_ids: [], corrected: false, note: '', created_at: now, updated_at: now, edited_at: null, deleted: false, ...draft, call: draft.call ?? null },
     ] })
     void queue(() => onEvent({ ...draft, id }, time))
-    if (askTags && onTag && TAGGABLE_TURNOVERS.has(draft.type)) store.set({ tagging: { id, type: draft.type, tags: [...draft.tags] } })
+    const turnoverCall = draft.type === 'call' && draft.call?.outcome === 'turnover'
+    if (askTags && onTag && (TAGGABLE_TURNOVERS.has(draft.type) || turnoverCall)) store.set({ tagging: { id, type: draft.type, tags: [...draft.tags] } })
     else store.set({ tagging: null })
   }
 
@@ -284,6 +285,28 @@ export function EntryPanel({
     say(issues.length ? `${label}. Ratio warning: ${issues.map((i) => i.message).join('; ')}` : label, issues.length > 0)
   }
 
+  const saveCall = (c: CallPick) => {
+    const m = store.get().modal
+    closeModal()
+    const s = stateNow()
+    if (c.outcome === 'turnover' && s.over) return say('Point is over — a call cannot turn it over now', true)
+    const turnover = c.outcome === 'turnover'
+    record(
+      {
+        type: 'call', team: c.team, defender_id: null, tags: [],
+        actor_id: c.team === 'us' ? c.player : null,
+        receiver_id: c.team === 'them' ? c.player : null,
+        call: {
+          kind: c.kind, outcome: c.outcome,
+          turnover_team: turnover ? s.offense : null,
+          charged_id: turnover && s.offense === 'us' ? s.holder : null,
+        },
+      },
+      m?.time ?? stamp(),
+    )
+    say(turnover ? `Call → ${s.offense === 'us' ? 'our' : `${game.opponent}’s`} turnover (counted once; don’t also press T)` : `Call: ${c.kind}, ${c.outcome.replace(/_/g, ' ')}`)
+  }
+
   const undo = () => {
     store.set({ tagging: null })
     cancel()
@@ -349,6 +372,10 @@ export function EntryPanel({
         e.preventDefault()
         return c.openModal('sub')
       }
+      if (k === 'f' || k === 'F') {
+        e.preventDefault()
+        return c.openModal('call')
+      }
       const hk = HOTKEYS.find((x) => x.key === k.toLowerCase())
       if (hk) {
         e.preventDefault()
@@ -405,6 +432,7 @@ export function EntryPanel({
           onCancel={closeModal}
         />
       )}
+      {modal?.kind === 'call' && <CallPicker line={linePlayers} opponent={game.opponent} onSave={saveCall} onCancel={closeModal} />}
       {tagging && (
         <TagStep tagging={tagging} choices={tagChoices} onToggle={toggleChoice} onAdd={addCustom} onDone={() => finishTags(true)} onSkip={() => finishTags(false)} />
       )}
@@ -451,6 +479,9 @@ export function EntryPanel({
             {act('pull', 'Brick', undefined, { result: 'brick', puller: current.point.pulled_by } as Partial<Command>)}
           </>
         )}
+        <Btn size="sm" onClick={() => openModal('call')} title="Key: F. Foul / violation call">
+          Call <kbd className="ml-1 rounded bg-black/30 px-1 text-[10px] text-slate-300">F</kbd>
+        </Btn>
         <Btn size="sm" onClick={() => openModal('sub')} title="Key: R. Mid-point sub (regular or injury)">
           Sub <kbd className="ml-1 rounded bg-black/30 px-1 text-[10px] text-slate-300">R</kbd>
         </Btn>

@@ -159,3 +159,37 @@ describe('mid-point subs', () => {
     expect(types(onEvent).map((e) => e.type)).toEqual(['pickup'])
   })
 })
+
+describe('call picker', () => {
+  const calls = (fn: ReturnType<typeof vi.fn>) => fn.mock.calls.map((c) => (c as unknown[])[0] as { type: string; team: string; actor_id: string | null; receiver_id: string | null; call: unknown })
+
+  it('F, type, team, player, outcome: a non-turnover call keeps the disc', async () => {
+    const { onEvent, key, flush } = setup()
+    for (const k of ['3', 'f', '1', 'u', '3', '1', '4']) key(k) // #3 picks up; foul called by us (#3), contested; then pass to #4
+    await flush()
+    const ev = calls(onEvent)
+    expect(ev.map((e) => e.type)).toEqual(['pickup', 'call', 'catch'])
+    expect(ev[1]).toMatchObject({ team: 'us', actor_id: 'c', call: { kind: 'foul', outcome: 'contested', turnover_team: null } })
+    expect(ev[2]).toMatchObject({ actor_id: 'c', receiver_id: 'd' })
+  })
+
+  it('a turnover call flips possession and is charged to the holder, with the tag step', async () => {
+    const { onEvent, onTag, key, flush } = setup('full', true)
+    for (const k of ['3', 'f', '2', 't', 'Enter', '5']) key(k) // travel called by them, no player, turnover
+    await flush()
+    const ev = calls(onEvent)
+    expect(ev[1]).toMatchObject({ type: 'call', team: 'them', call: { kind: 'travel', outcome: 'turnover', turnover_team: 'us', charged_id: 'c' } })
+    expect(document.body.textContent).toContain('Tag this call')
+    for (const k of ['Escape', 'b', '4']) key(k) // now their disc: B 4 is our block
+    await flush()
+    expect(calls(onEvent).map((e) => e.type)).toEqual(['pickup', 'call', 'D'])
+    expect(onTag).not.toHaveBeenCalled()
+  })
+
+  it('Esc cancels a call', async () => {
+    const { onEvent, key, flush } = setup()
+    for (const k of ['f', '1', 'Escape', '3']) key(k)
+    await flush()
+    expect(calls(onEvent).map((e) => e.type)).toEqual(['pickup'])
+  })
+})

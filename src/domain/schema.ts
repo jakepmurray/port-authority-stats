@@ -134,8 +134,30 @@ export const EventType = z.enum([
   'half',
   'cap',
   'note',
+  'call', // foul/violation call: team = calling team; see CallSchema
 ])
 export type EventType = z.infer<typeof EventType>
+
+export const CallKind = z.enum(['foul', 'travel', 'pick', 'strip', 'contact', 'stall', 'offside', 'other'])
+export type CallKind = z.infer<typeof CallKind>
+export const CallOutcome = z.enum(['contested', 'uncontested', 'retracted', 'back_to_thrower', 'turnover'])
+export type CallOutcome = z.infer<typeof CallOutcome>
+
+/**
+ * Details of a 'call' event. The event's team is the team that made the call and
+ * the called-on team is the other one. actor_id = our player who called it (when we
+ * called it), receiver_id = our player it was called on (when they called it).
+ * Only outcome 'turnover' changes possession: turnover_team loses the disc, and
+ * charged_id is our player charged with it (if it was ours). The call is the only
+ * turnover event, so nothing is double-counted.
+ */
+export const CallSchema = z.object({
+  kind: CallKind,
+  outcome: CallOutcome,
+  turnover_team: TeamSide.nullable().default(null),
+  charged_id: id.nullable().default(null),
+})
+export type Call = z.infer<typeof CallSchema>
 
 export const EventSchema = z.object({
   id,
@@ -162,6 +184,7 @@ export const EventSchema = z.object({
   /** Free-form tags, e.g. pull result ('in'|'ob'|'brick'), cap kind ('half'|'soft'|'hard'). */
   tags: z.array(z.string()).default([]),
   note: z.string().default(''),
+  call: CallSchema.nullable().default(null),
   ...meta,
 })
 export type GameEvent = z.infer<typeof EventSchema>

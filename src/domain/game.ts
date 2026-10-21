@@ -5,7 +5,10 @@ export const other = (t: TeamSide): TeamSide => (t === 'us' ? 'them' : 'us')
 export const flipSide = (s: Side): Side => (s === 'O' ? 'D' : 'O')
 
 /** Events that are bookkeeping only and never change possession. */
-export const META_TYPES = new Set<GameEvent['type']>(['timeout', 'sub', 'injury', 'half', 'cap', 'note', 'throw'])
+export const META_TYPES = new Set<GameEvent['type']>(['timeout', 'sub', 'injury', 'half', 'cap', 'note', 'throw', 'call'])
+
+/** A call whose outcome turns the disc over (the call itself is the turnover event). */
+export const isTurnoverCall = (e: GameEvent) => e.type === 'call' && e.call?.outcome === 'turnover'
 /** Events that turn the disc over from the team that had it (team = the team that lost it). */
 export const TURNOVER_TYPES = new Set<GameEvent['type']>(['throwaway', 'drop', 'stall', 'turnover'])
 
@@ -55,6 +58,10 @@ export function replayPoint(startOn: Side, events: GameEvent[]): PossessionState
     // A sub for the player holding the disc: the incoming player takes it (same count).
     if ((e.type === 'sub' || e.type === 'injury') && e.team === 'us' && s.holder && s.holder === e.actor_id) {
       s.holder = e.receiver_id
+      continue
+    }
+    if (isTurnoverCall(e)) {
+      gain(other(e.call!.turnover_team ?? s.offense))
       continue
     }
     if (META_TYPES.has(e.type)) continue

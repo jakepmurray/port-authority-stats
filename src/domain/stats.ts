@@ -1,4 +1,4 @@
-import { deriveGame, META_TYPES, type GameState } from './game'
+import { deriveGame, isTurnoverCall, META_TYPES, type GameState } from './game'
 import type { Game, GameEvent, Player, Point } from './schema'
 import { userTags } from './tags'
 import { lineTimeline } from './subs'
@@ -13,11 +13,16 @@ import { lineTimeline } from './subs'
  * - Yards: (y_end − y) for completions when coordinates exist, toward the attacking end zone.
  * - Tags add context only: a throwaway tagged "receiver error" is still the thrower's
  *   throwaway. turnover_tags counts charged turnovers by tag, then by type.
+ * - Calls: counted by kind and outcome for the caller (if ours) and the player called on
+ *   (if ours). Only a call with outcome "turnover" changes possession; it counts as one
+ *   turnover (call_turns for our charged player), never in addition to a T/D/S event.
  * - Points missed on film count toward the score and team hold/break numbers, but not
  *   toward per-player points or any event-based rate (they are listed as points_missed).
  */
 /** tag → turnover type → count */
 export type TagBreakdown = Record<string, Record<string, number>>
+/** call kind → outcome → count */
+export type CallBreakdown = Record<string, Record<string, number>>
 export interface PlayerStats {
   player_id: string
   points: number
@@ -46,6 +51,13 @@ export interface PlayerStats {
   /** On the line for points missed on film (not counted in `points`). */
   points_missed: number
   turnover_tags: TagBreakdown
+  /** Turnovers from calls (e.g. a travel or offensive foul that stands as a turnover); in `turnovers`. */
+  call_turns: number
+  /** Calls this player made (when we called) / that were called on this player (when they called). */
+  calls_made: number
+  calls_against: number
+  calls_made_by: CallBreakdown
+  calls_against_by: CallBreakdown
 }
 
 export const emptyPlayerStats = (player_id: string): PlayerStats => ({
@@ -74,6 +86,11 @@ export const emptyPlayerStats = (player_id: string): PlayerStats => ({
   partial_points: 0,
   points_missed: 0,
   turnover_tags: {},
+  call_turns: 0,
+  calls_made: 0,
+  calls_against: 0,
+  calls_made_by: {},
+  calls_against_by: {},
 })
 
 export interface TeamStats {
@@ -108,6 +125,11 @@ export interface TeamStats {
   points_missed: number
   /** Our turnovers by tag. */
   turnover_tags: TagBreakdown
+  /** Calls we made / calls they made on us, by kind then outcome. */
+  calls_made: number
+  calls_against: number
+  calls_made_by: CallBreakdown
+  calls_against_by: CallBreakdown
 }
 
 /** Opponent tracked at team totals only. */
@@ -121,6 +143,9 @@ export interface OpponentStats {
   possessions: number
   /** Their turnovers (incl. our Ds) by tag. */
   turnover_tags: TagBreakdown
+  /** Calls they made / calls we made on them (mirror of the team numbers). */
+  calls_made: number
+  calls_against: number
 }
 
 export interface GameStats {
@@ -171,8 +196,9 @@ export function computeGameStats(game: Game, points: Point[], events: GameEvent[
     o_conversion: null, d_break_pct: null, goals: 0, completions: 0, turnovers: 0,
     turnovers_per_point: null, ds: 0, callahans: 0, possessions: 0, scoring_efficiency: null,
     pulls: 0, pulls_in: 0, pulls_ob: 0, pulls_brick: 0, subs: 0, injury_subs: 0, points_missed: 0, turnover_tags: {},
+    calls_made: 0, calls_against: 0, calls_made_by: {}, calls_against_by: {},
   }
-  const opp: OpponentStats = { goals: 0, turnovers: 0, ds: 0, callahans: 0, holds: 0, breaks: 0, possessions: 0, turnover_tags: {} }
+  const opp: OpponentStats = { goals: 0, turnovers: 0, ds: 0, callahans: 0, holds: 0, breaks: 0, possessions: 0, turnover_tags: {}, calls_made: 0, calls_against: 0 }
   /** Charge one of our turnovers: team breakdown always, player breakdown when known. */
   const ourTurn = (e: GameEvent, s: PlayerStats | null, type: string = e.type) => {
     team.turnovers++
@@ -232,6 +258,38 @@ export function computeGameStats(game: Game, points: Point[], events: GameEvent[
     opp.possessions += info.state.possessions.them
 
     if (missed) continue // no event stats from points missed on film
+    for (const e of evs) {
+      if (e.type !== 'call' || !e.call) continue
+      const { kind, outcome } = e.call
+      const bump = (b: CallBreakdown) => ((b[kind] ??= {})[outcome] = (b[kind][outcome] ?? 0) + 1)
+      if (e.team === 'us') {
+        team.calls_made++
+        opp.calls_against++
+        bump(team.calls_made_by)
+        const s = P(e.actor_id)
+        if (s) {
+          s.calls_made++
+          bump(s.calls_made_by)
+        }
+      } else {
+        team.calls_against++
+        opp.calls_made++
+        bump(team.calls_against_by)
+        const s = P(e.receiver_id)
+        if (s) {
+          s.calls_against++
+          bump(s.calls_against_by)
+        }
+      }
+      if (isTurnoverCall(e)) {
+        const lost = e.call.turnover_team ?? (e.team === 'us' ? 'them' : 'us')
+        if (lost === 'us') {
+          const s = P(e.call.charged_id)
+          ourTurn(e, s)
+          if (s) s.call_turns++
+        } else theirTurn(e)
+      }
+    }
     const play = evs.filter((e) => !META_TYPES.has(e.type))
     play.forEach((e, i) => {
       const us = e.team === 'us'
@@ -356,7 +414,7 @@ export function computeGameStats(game: Game, points: Point[], events: GameEvent[
   }
 
   for (const s of players.values()) {
-    s.turnovers = s.throwaways + s.drops + s.stalls + s.other_turns
+    s.turnovers = s.throwaways + s.drops + s.stalls + s.other_turns + s.call_turns
     s.comp_pct = ratio(s.completions, s.throw_attempts)
     s.plus_minus = s.goals + s.assists + s.ds - s.turnovers
   }
@@ -375,8 +433,8 @@ export function sumPlayerStats(list: PlayerStats[][]): Map<string, PlayerStats> 
       const acc = out.get(s.player_id) ?? emptyPlayerStats(s.player_id)
       for (const k of Object.keys(acc) as (keyof PlayerStats)[]) {
         if (k === 'player_id' || k === 'comp_pct') continue
-        if (k === 'turnover_tags') {
-          mergeTags(acc.turnover_tags, s.turnover_tags)
+        if (k === 'turnover_tags' || k === 'calls_made_by' || k === 'calls_against_by') {
+          mergeTags(acc[k], s[k])
           continue
         }
         ;(acc[k] as number) += s[k] as number
