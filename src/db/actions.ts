@@ -3,7 +3,8 @@ import { makeBackup, mergeRows, parseBackup, type Backup } from '../domain/backu
 import type { EventDraft } from '../domain/entry'
 import { deriveGame, liveOnly, missedState, outcomeOf, replayPoint } from '../domain/game'
 import { normalizeTag } from '../domain/tags'
-import type { Game, GameEvent, Point, Side } from '../domain/schema'
+import type { Game, GameEvent, GenderMatch, Point, Side } from '../domain/schema'
+import { planGame, type NameChoice, type UAGame } from '../domain/ultianalytics'
 import { repo as defaultRepo, type NewRow, type Repo } from './repo'
 
 export const TEAM_NAME = 'Port Authority'
@@ -182,6 +183,43 @@ export class Actions {
     }
     await this.repo.softDelete('points', last.id, false)
     return 'point'
+  }
+
+  /**
+   * Import UltiAnalytics games: create the new players first, then each game with its points
+   * and events (source 'import'). Everything lands in the sync queue like a hand-entered game.
+   */
+  async importUltiAnalytics(
+    games: UAGame[],
+    choices: Map<string, NameChoice>,
+    newPlayers: Map<string, { name: string; number: string; gender_match: GenderMatch }>,
+  ) {
+    const team = await this.ensureTeam()
+    const d = this.repo.db
+    const ids = new Map<string, string>()
+    let created = 0
+    const saved: Game[] = []
+    await d.transaction('rw', [d.players, d.games, d.points, d.events, d.syncQueue], async () => {
+      for (const [name, c] of choices) {
+        if (c.kind === 'player') ids.set(name, c.id)
+        else if (c.kind === 'new') {
+          const np = newPlayers.get(name)
+          if (!np) throw new Error(`Missing details for new player ${name}`)
+          const p = await this.repo.create('players', { team_id: team.id, name: np.name.trim() || name, number: np.number, gender_match: np.gender_match, role: 'hybrid' })
+          ids.set(name, p.id)
+          created++
+        }
+      }
+      const P = (n: string | null) => (n ? (ids.get(n) ?? null) : null)
+      for (const ua of games) {
+        const plan = planGame(ua, P, { team_id: team.id })
+        await this.repo.create('games', plan.game)
+        await this.repo.bulkCreate('points', plan.points)
+        await this.repo.bulkCreate('events', plan.events)
+        saved.push(plan.game)
+      }
+    })
+    return { games: saved, playersCreated: created }
   }
 
   async exportBackup(): Promise<Backup> {

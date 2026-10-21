@@ -4,6 +4,7 @@ import { db } from '../../db/db'
 import { eventsCsv, gamesCsv, playerStatsCsv, pointsCsv, type AllData } from '../../domain/exports'
 import { download } from '../format'
 import { Btn, Card } from '../kit'
+import { UltiImport } from '../UltiImport'
 
 const stamp = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')
 
@@ -61,8 +62,11 @@ export function DataPage() {
           <Btn onClick={async () => download(`pa-events-${stamp()}.csv`, eventsCsv(await all()), 'text/csv')}>Events (play-by-play)</Btn>
         </div>
       </Card>
+      <UltiImport />
       <Card title="Google Sheet sync">
-        <p className="text-sm text-slate-400">Coming in Phase 2: live push to a Google Sheet published to the web, through a free Apps Script web app.</p>
+        <p className="text-sm text-slate-400">
+          Live push to your own Google Sheet: set it up on the <a className="text-sky-300 underline" href="#/settings">Settings</a> page.
+        </p>
       </Card>
       {msg && <p className="text-sm text-sky-200">{msg}</p>}
     </div>

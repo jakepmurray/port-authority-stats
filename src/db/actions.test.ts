@@ -78,3 +78,34 @@ describe('Actions', () => {
     await expect(b.importBackup('{"app":"nope"}', 'merge')).rejects.toThrow()
   })
 })
+
+describe('importUltiAnalytics', () => {
+  it('creates new players, the games, points and events, all queued for sync', async () => {
+    const { parseUltiCsv, suggestMatches, collectNames } = await import('../domain/ultianalytics')
+    const csv = (await import('../domain/__fixtures__/ultianalytics/edge-cases.csv?raw')).default
+    const { games } = parseUltiCsv(csv)
+    const team = await a.ensureTeam()
+    const ann = await a.repo.create('players', { team_id: team.id, name: 'Ann Lee', number: '1', gender_match: 'W' })
+    const names = [...collectNames(games).keys()]
+    const choices = suggestMatches(names, [ann])
+    choices.set('Hal', { kind: 'none' })
+    const fresh = new Map(names.filter((n) => choices.get(n)!.kind === 'new').map((n, i) => [n, { name: n, number: String(10 + i), gender_match: 'M' as const }]))
+    const r = await a.importUltiAnalytics(games, choices, fresh)
+    expect(r.playersCreated).toBe(6) // Bea, Cal, Dee, Eve, Fox, Gus
+    const players = await a.repo.live('players')
+    expect(players).toHaveLength(7)
+    const [g] = r.games
+    const points = await a.repo.pointsOfGame(g.id)
+    const events = await a.repo.eventsOfGame(g.id)
+    expect(points).toHaveLength(4)
+    expect(points[0].line).toContain(ann.id)
+    expect(points[0].line).toHaveLength(7) // 8 listed, Hal left blank: no guessed sub needed
+    expect(events.filter((e) => e.point_id === points[0].id && e.type === 'sub')).toHaveLength(0)
+    expect(events.filter((e) => e.source === 'import')).toHaveLength(events.length)
+    const st = deriveGame((await a.repo.get('games', g.id))!, points, events)
+    expect(st.score).toEqual({ us: 2, them: 2 })
+    const q = await a.repo.db.syncQueue.toArray()
+    expect(q.filter((o) => o.table === 'events')).toHaveLength(events.length)
+    expect(q.some((o) => o.table === 'games' && o.row_id === g.id)).toBe(true)
+  })
+})

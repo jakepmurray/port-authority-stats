@@ -45,6 +45,7 @@ Paste a YouTube link, watch the game beside a stat panel, and every stat you ent
   (line, O/D, ratio, puller). Deletes are soft and can be restored ("show deleted"). Hand edits are marked *edited*.
 - **Caps:** set the game start with *Set game start*; the game clock warns when a cap is due. Press *half/soft/hard cap*
   during the point when it goes on; the app finishes the point and sets the new target (higher score + 1).
+- **Import from UltiAnalytics:** see [Import from UltiAnalytics](#import-from-ultianalytics) below; it's on the *Data* page.
 - **Sheet sync:** see [Google Sheet sync](#google-sheet-sync-free) below; set it up under *Settings*.
 - **Data:** download a JSON backup after each game; restore (merge or replace) on any device. CSV export for player stats,
   games, points and events (with YouTube links to each moment).
@@ -88,6 +89,41 @@ The app pushes your stats to a Google Sheet you own, through a small Apps Script
 2. Click Deploy > Manage deployments, select the active Web app deployment, and click Edit (the pencil).
 3. Under Version, choose New version, then click Deploy. The /exec URL stays the same, so nothing changes in the app.
 4. Don’t use Deploy > New deployment for updates: that creates a new URL.
+
+## Import from UltiAnalytics
+
+Games tracked with the UltiAnalytics (iUltimate) app can be imported on the **Data** page. Nothing is saved until you have reviewed the games and players.
+
+### Get the CSV (works for every team)
+
+1. In the UltiAnalytics app on your phone, open the Website tab and upload your games: turn on Game Uploading, or tap Upload, pick the games and tap Upload. Sign in with Google if it asks.
+2. On a computer (the Download page is turned off on phone-sized screens), open your team website: www.ultianalytics.com/app/#/<your team number>/players. The Website tab in the app links to it, or search for your team at www.ultianalytics.com.
+3. If the team website has a password, enter it.
+4. Click Download in the menu bar, then click "Download raw statistics in CSV format". You get one file (e.g. PortAuthority-stats.csv) with every game.
+5. In this app, open Data > Import from UltiAnalytics, click Choose file and pick that CSV (or paste its contents). Review the games and players, then click Import.
+
+### Or use the team link (teams without a website password)
+
+1. Copy your team website link (or just the long number in it) and paste it into the team link box here, then click Load team.
+2. This only works when the team website has no password. It reads the games straight from UltiAnalytics and includes exact mid-point subs, which the CSV does not have.
+
+### What gets imported
+
+- **Games:** opponent, tournament and date. The game-to is UltiAnalytics' game point if set, otherwise the winning score. There are no caps.
+- **Points:** O/D from UltiAnalytics' Line column, the line, and the score. The outcome (hold, break…) is worked out from the events and checked against UltiAnalytics' score; any point that disagrees is flagged in the preview.
+- **Events:** pulls (OB pulls tagged `ob`, hang time in the note), catches, goals, throwaways, drops, stalls, Ds, Callahans (both ways), misc. penalties (as an other turnover), timeouts (ours: UltiAnalytics only tracks the stat-keeping team's), halftime, and subs/injuries (team link only). Quarter ends become notes; "game over" is dropped. Every event is marked source `import` with no video time.
+- **Opponent:** team totals only, as for every game here.
+- **Players:** each UltiAnalytics name (often a nickname) is matched to the roster by full name, first name, last name or a previous import. You can change each match, add unmatched names as new players (they need a jersey number and a gender match), or leave them blank. "Anonymous" is always blank.
+- **De-dupe:** a game already here with the same opponent, date and score (or imported before) is unticked in the preview.
+
+### Limits
+
+- **No gender match in UltiAnalytics:** imported points get placeholder ABBA ratios and the game notes say so. Ratio warnings on those games mean nothing.
+- **CSV subs:** the CSV lists everyone who played a point but not who came off or when. If more than 7 are listed, the first 7 to touch the disc are the line and the rest are recorded as subbing on at the start of the point (flagged in the preview). The team link has exact subs.
+- **Points played:** UltiAnalytics counts its halftime and quarter-end markers as extra "points" and gives half a point for a sub. Here those markers are not points, and a sub gets the point, flagged as partial.
+- **Not imported:** field positions and throw distances, wind, and UltiAnalytics' own +/- and efficiency numbers (they are recomputed here). Video times are left empty.
+- **Team link:** only works for public team websites. A password-protected team returns an error; use the CSV.
+- **Other files:** a single-game `.iexport` file from the UltiAnalytics admin site (Games tab, Export) and the team website's game JSON also import.
 
 ## Stat definitions
 

@@ -1,0 +1,15 @@
+{
+ "cloudId": "1234567890123456",
+ "teamId": "team-FAKE",
+ "name": "Fixture Team 2026",
+ "season": "2026",
+ "nameWithSeason": "Fixture Team 2026 2026",
+ "numberOfGames": 2,
+ "firstGameDate": "2026-10-19 7:56 PM",
+ "lastGameDate": "2026-10-20 4:53 PM",
+ "deleted": false,
+ "private": false,
+ "displayPlayerNumber": false,
+ "playersAreLeaguevine": false,
+ "mixed": false
+}
