@@ -1,0 +1,66 @@
+import { describe, expect, it } from 'vitest'
+import { makeBackup, mergeRows, parseBackup } from './backup'
+import { toCsv } from './csv'
+import { builder } from './fixtures'
+import { formatClock, parseClock } from './time'
+import { parseYouTubeId, parseYouTubeStart } from './youtube'
+
+describe('parseYouTubeId', () => {
+  it.each([
+    ['https://www.youtube.com/watch?v=dQw4w9WgXcQ', 'dQw4w9WgXcQ'],
+    ['https://youtu.be/dQw4w9WgXcQ?t=42', 'dQw4w9WgXcQ'],
+    ['youtube.com/watch?v=dQw4w9WgXcQ&list=x', 'dQw4w9WgXcQ'],
+    ['https://m.youtube.com/watch?v=dQw4w9WgXcQ', 'dQw4w9WgXcQ'],
+    ['https://www.youtube.com/embed/dQw4w9WgXcQ', 'dQw4w9WgXcQ'],
+    ['https://www.youtube.com/live/dQw4w9WgXcQ?si=abc', 'dQw4w9WgXcQ'],
+    ['https://www.youtube.com/shorts/dQw4w9WgXcQ', 'dQw4w9WgXcQ'],
+    ['dQw4w9WgXcQ', 'dQw4w9WgXcQ'],
+  ])('%s', (url, id) => expect(parseYouTubeId(url)).toBe(id))
+  it('rejects non-YouTube input', () => {
+    expect(parseYouTubeId('https://vimeo.com/123')).toBeNull()
+    expect(parseYouTubeId('hello world')).toBeNull()
+    expect(parseYouTubeId('https://www.youtube.com/watch?v=short')).toBeNull()
+  })
+  it('reads start times', () => {
+    expect(parseYouTubeStart('https://youtu.be/dQw4w9WgXcQ?t=90')).toBe(90)
+    expect(parseYouTubeStart('https://youtube.com/watch?v=dQw4w9WgXcQ&t=1m30s')).toBe(90)
+    expect(parseYouTubeStart('https://youtu.be/dQw4w9WgXcQ')).toBeNull()
+  })
+})
+
+describe('clock', () => {
+  it('formats and parses', () => {
+    expect(formatClock(75.4)).toBe('1:15')
+    expect(formatClock(3725)).toBe('1:02:05')
+    expect(formatClock(null)).toBe('–')
+    expect(parseClock('1:15')).toBe(75)
+    expect(parseClock('1:02:05')).toBe(3725)
+    expect(parseClock('75.5')).toBe(75.5)
+    expect(parseClock('')).toBeNull()
+    expect(parseClock('a:b')).toBeNaN()
+  })
+})
+
+describe('csv', () => {
+  it('quotes and joins', () => {
+    expect(toCsv([{ a: 'x,y', b: 'say "hi"', c: null, d: ['p', 'q'] }])).toBe('a,b,c,d\n"x,y","say ""hi""",,p;q\n')
+    expect(toCsv([{ a: 1, b: 2 }], ['b'])).toBe('b\n2\n')
+  })
+})
+
+describe('backup', () => {
+  it('round-trips and validates', () => {
+    const b = builder().point('O').goal('a', 'b')
+    const bk = makeBackup({ teams: [], players: [], games: [b.game], points: b.points, events: b.events }, 5)
+    const back = parseBackup(JSON.stringify(bk))
+    expect(back.events).toHaveLength(1)
+    expect(() => parseBackup('{')).toThrow('Not a JSON file')
+    expect(() => parseBackup(JSON.stringify({ ...bk, app: 'other' }))).toThrow('Not a valid backup')
+    expect(() => parseBackup(JSON.stringify({ ...bk, schema_version: 99 }))).toThrow('newer')
+  })
+  it('merge keeps the newer row', () => {
+    const old = [{ id: 'a', updated_at: 5 }, { id: 'b', updated_at: 5 }]
+    const inc = [{ id: 'a', updated_at: 4 }, { id: 'b', updated_at: 6 }, { id: 'c', updated_at: 1 }]
+    expect(mergeRows(old, inc).map((r) => r.id)).toEqual(['b', 'c'])
+  })
+})
