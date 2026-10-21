@@ -4,22 +4,32 @@ import { repo } from '../../db/repo'
 import { PlayerSchema, type Player } from '../../domain/schema'
 import { usePlayers } from '../hooks'
 import { Badge, Btn, Card, Input, Select } from '../kit'
+import { RosterImport } from '../RosterImport'
 
 export function Roster() {
   const [showDeleted, setShowDeleted] = useState(false)
+  const [importing, setImporting] = useState(false)
   const players = usePlayers(true)
   const list = (players ?? []).filter((p) => showDeleted || !p.deleted)
   const counts = { W: 0, M: 0 }
   for (const p of players ?? []) if (!p.deleted && p.active) counts[p.gender_match]++
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-4 p-4">
+    <div className="mx-auto flex max-w-5xl flex-col gap-4 p-4">
+      {importing && <RosterImport existing={players ?? []} onClose={() => setImporting(false)} />}
       <Card
         title={`Roster · ${counts.W} WMP / ${counts.M} MMP active`}
         actions={
-          <label className="flex items-center gap-1 text-xs text-slate-400">
-            <input type="checkbox" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} /> show deleted
-          </label>
+          <>
+            <label className="mr-2 flex items-center gap-1 text-xs text-slate-400">
+              <input type="checkbox" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} /> show deleted
+            </label>
+            {!importing && (
+              <Btn size="sm" tone="primary" onClick={() => setImporting(true)}>
+                Import…
+              </Btn>
+            )}
+          </>
         }
       >
         <AddPlayer existing={players ?? []} />
