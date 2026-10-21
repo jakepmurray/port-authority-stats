@@ -1,7 +1,7 @@
 # Port Authority Stats: Product & Technical Plan
 *For Jacob Murray · v2.1, approved 2026-10-20 · Free/OSS only · All decisions locked (§9)*
 *Repo: [jakepmurray/port-authority-stats](https://github.com/jakepmurray/port-authority-stats) (MIT) · App: https://jakepmurray.github.io/port-authority-stats/*
-*Status (2026-10-20): Phase 0 scaffold done; Phase 1 film-entry MVP live. Google Sheet sync is next (Phase 2).*
+*Status (2026-10-21): Phase 0 scaffold and Phase 1 film-entry MVP live; Phase 2 Google Sheet sync built (Apps Script in `apps-script/`, set up under Settings). Live sideline entry is next.*
 
 ## 1. Goal
 A free, open-source stat app for Port Authority (Mixed) that you use **while watching game film**.
@@ -112,16 +112,16 @@ SyncQueue(op_id, table, row_id, payload, attempts, last_error)   -- local only
 PocketBase is dropped because the Sheet covers sharing.
 
 **Public sheet (Phase 2):**
-1. One Sheet with tabs `Players`, `Games`, `Points`, `Events`, `Stats_Player`, `Stats_Game` and `Meta` (schema version).
+1. One Sheet with tabs `Players`, `Games`, `Points`, `Events`, `Player Stats`, `Game Stats` and `Meta` (schema version).
 2. An Apps Script `doPost(e)`, deployed as a web app with *Execute as: me* and *Access: anyone*. It:
    - receives `{token, ops:[{table, rows[]}]}`;
    - checks a shared token stored in Script Properties;
    - takes `LockService`;
-   - upserts each row by `id` in one batched `setValues`;
+   - upserts Players and Games by `id`, and replaces each pushed game's Points, Events and stats rows with the app's snapshot, in batched `setValues`;
    - returns the ids it accepted.
 3. The PWA sends `fetch(url, {method:'POST', body: JSON.stringify(batch)})` as `text/plain`, which avoids the CORS preflight. It pushes the queue on each change (debounced about 5 s) and on reconnect, with exponential backoff. The queue is cleared only for acknowledged ids.
-4. The `Stats_*` tabs are computed by the PWA and pushed as snapshots, so the app stays the single source of truth.
-5. **File → Share → Publish to web** publishes only the `Stats_*` and `Events` tabs as the read-only link for teammates.
+4. The stats tabs are computed by the PWA and pushed as snapshots, so the app stays the single source of truth.
+5. **File → Share → Publish to web** publishes only the `Player Stats`, `Game Stats` and `Events` tabs as the read-only link for teammates.
 6. Treat the token as obscurity, not real security. Accepted risk: the data is non-sensitive stats.
 
 **Private sheet (optional, later):** Google Identity Services sign-in, and the PWA calls the Sheets API directly with the `drive.file` scope (free). The Sheet is shared only with the team. Apps Script is no longer needed.

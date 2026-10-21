@@ -10,6 +10,9 @@ import { Popout } from './ui/pages/Popout'
 import { Roster } from './ui/pages/Roster'
 import { Season } from './ui/pages/Season'
 import { Workspace } from './ui/pages/Workspace'
+import { Settings } from './ui/pages/Settings'
+import { SyncBadge } from './ui/SyncBadge'
+import { startSync } from './sync'
 
 function EditGame({ id }: { id: string }) {
   const game = useLiveQuery(() => db.games.get(id), [id])
@@ -21,6 +24,7 @@ export default function App() {
   const route = useRoute()
   useEffect(() => {
     void actions.ensureTeam()
+    startSync()
   }, [])
 
   if (route[0] === 'popout' && route[1]) return <Popout gameId={route[1]} />
@@ -31,6 +35,7 @@ export default function App() {
   else if (a === 'new') page = <GameSetup />
   else if (a === 'season') page = <Season />
   else if (a === 'data') page = <DataPage />
+  else if (a === 'settings') page = <Settings />
   else if (a === 'game' && b && c === 'edit') page = <EditGame id={b} />
   else if (a === 'game' && b) page = <Workspace key={b} gameId={b} />
   else page = <Home />
@@ -51,7 +56,11 @@ export default function App() {
         {link('#/roster', 'Roster', a === 'roster')}
         {link('#/season', 'Season', a === 'season')}
         {link('#/data', 'Data', a === 'data')}
-        <a className="ml-auto text-xs text-slate-500 hover:text-slate-300" href="https://github.com/jakepmurray/port-authority-stats" target="_blank" rel="noreferrer">
+        {link('#/settings', 'Settings', a === 'settings')}
+        <span className="ml-auto">
+          <SyncBadge />
+        </span>
+        <a className="ml-2 text-xs text-slate-500 hover:text-slate-300" href="https://github.com/jakepmurray/port-authority-stats" target="_blank" rel="noreferrer">
           GitHub
         </a>
       </header>

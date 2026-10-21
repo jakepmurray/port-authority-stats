@@ -207,6 +207,10 @@ export class Actions {
         const write = mode === 'replace' ? rows : mergeRows(await table.toArray(), rows)
         await table.bulkPut(write)
         counts[table.name] = write.length
+        // Queue restored players and games for Sheet sync (each game is pushed as a full snapshot).
+        if (table.name === 'players' || table.name === 'games') {
+          await d.syncQueue.bulkPut(write.map((r) => ({ op_id: `${table.name}:${r.id}`, table: table.name as 'players' | 'games', row_id: r.id, payload: r, attempts: 0, last_error: null })))
+        }
       }
       await put(d.teams, b.teams)
       await put(d.players, b.players)
@@ -214,6 +218,7 @@ export class Actions {
       await put(d.points, b.points)
       await put(d.events, b.events)
     })
+    this.repo.onWrite?.()
     return counts
   }
 }

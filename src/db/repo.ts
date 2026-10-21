@@ -39,6 +39,8 @@ const parse = <K extends TableName>(name: K, v: unknown): RowOf[K] => schemas[na
 /** Thin, validated data access over Dexie. Every write also lands in the sync queue. */
 export class Repo {
   readonly db: StatsDB
+  /** Called after every committed write (the sync engine listens here). */
+  onWrite: (() => void) | null = null
   constructor(db: StatsDB = defaultDb) {
     this.db = db
   }
@@ -64,6 +66,7 @@ export class Repo {
       await this.table(name).add(row)
       await this.enqueue(name, row as { id: string })
     })
+    this.onWrite?.()
     return row
   }
 
@@ -73,6 +76,7 @@ export class Repo {
       await this.table(name).bulkAdd(rows)
       for (const r of rows) await this.enqueue(name, r as { id: string })
     })
+    this.onWrite?.()
     return rows
   }
 
@@ -86,7 +90,7 @@ export class Repo {
     patch: Partial<RowOf[K]>,
     opts: { byHand?: boolean } = {},
   ): Promise<RowOf[K]> {
-    return this.db.transaction('rw', this.table(name), this.db.syncQueue, async () => {
+    const out = await this.db.transaction('rw', this.table(name), this.db.syncQueue, async () => {
       const cur = await this.table(name).get(id)
       if (!cur) throw new Error(`${name} ${id} not found`)
       const t = now()
@@ -102,6 +106,8 @@ export class Repo {
       await this.enqueue(name, next as { id: string })
       return next
     })
+    this.onWrite?.()
+    return out
   }
 
   softDelete<K extends TableName>(name: K, id: string, byHand = true) {
