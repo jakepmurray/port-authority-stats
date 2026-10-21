@@ -64,3 +64,31 @@ describe('backup', () => {
     expect(mergeRows(old, inc).map((r) => r.id)).toEqual(['b', 'c'])
   })
 })
+
+import { eventsCsv, gamesCsv, playerStatsCsv, pointsCsv } from './exports'
+import { PlayerSchema } from './schema'
+
+describe('CSV exports', () => {
+  const b = builder({ video: { kind: 'youtube', youtube_id: 'dQw4w9WgXcQ', url: null, offset_s: 0 } })
+  const players = ['a', 'b'].map((id, i) =>
+    PlayerSchema.parse({ id, team_id: 't1', name: id.toUpperCase(), number: String(i + 1), gender_match: 'W', created_at: 1, updated_at: 1 }),
+  )
+  b.point('O', ['a', 'b']).ev('pickup', 'us', { actor_id: 'a', video_time: 61.2 }).goal('a', 'b')
+  b.ev('note', 'us', { deleted: true })
+  const d = { players, games: [b.game], points: b.points, events: b.events }
+
+  it('exports events with names and YouTube deep links, skipping deleted', () => {
+    const csv = eventsCsv(d)
+    const lines = csv.trim().split('\n')
+    expect(lines).toHaveLength(3)
+    expect(lines[1]).toContain('https://youtu.be/dQw4w9WgXcQ?t=61')
+    expect(lines[2]).toContain('goal,us,1,A,2,B')
+  })
+  it('exports games, points and player stats', () => {
+    expect(gamesCsv(d)).toContain(',1,0,in progress,')
+    expect(pointsCsv(d).split('\n')[1]).toContain('1 2')
+    const ps = playerStatsCsv(d).split('\n')
+    expect(ps[0]).toContain('goals')
+    expect(ps).toHaveLength(4)
+  })
+})
