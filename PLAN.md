@@ -1,6 +1,7 @@
 # Port Authority Stats: Product & Technical Plan
 *For Jacob Murray · v2.1, approved 2026-10-20 · Free/OSS only · All decisions locked (§9)*
 *Repo: [jakepmurray/port-authority-stats](https://github.com/jakepmurray/port-authority-stats) (MIT) · App: https://jakepmurray.github.io/port-authority-stats/*
+*Status (2026-10-20): Phase 0 scaffold done; Phase 1 film-entry MVP live. Google Sheet sync is next (Phase 2).*
 
 ## 1. Goal
 A free, open-source stat app for Port Authority (Mixed) that you use **while watching game film**.
