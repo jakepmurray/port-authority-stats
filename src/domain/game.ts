@@ -51,7 +51,13 @@ export function replayPoint(startOn: Side, events: GameEvent[]): PossessionState
     s.possessions[t]++
   }
   for (const e of events) {
-    if (e.deleted || s.over || META_TYPES.has(e.type)) continue
+    if (e.deleted || s.over) continue
+    // A sub for the player holding the disc: the incoming player takes it (same count).
+    if ((e.type === 'sub' || e.type === 'injury') && e.team === 'us' && s.holder && s.holder === e.actor_id) {
+      s.holder = e.receiver_id
+      continue
+    }
+    if (META_TYPES.has(e.type)) continue
     switch (e.type) {
       case 'pull':
         break

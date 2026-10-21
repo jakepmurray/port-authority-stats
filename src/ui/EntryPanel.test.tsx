@@ -11,7 +11,9 @@ const players = [
 
 afterEach(cleanup)
 
-function setup(mode: 'full' | 'quick' = 'full', askTags = false) {
+const bench = PlayerSchema.parse({ id: 'h', team_id: 't1', name: 'H', number: '8', gender_match: 'M', created_at: 1, updated_at: 1 })
+
+function setup(mode: 'full' | 'quick' = 'full', askTags = false, roster = players) {
   const b = builder().point('O', players.map((p) => p.id))
   const current = deriveGame(b.game, b.points, b.events).current!
   const onEvent = vi.fn(async () => {})
@@ -21,7 +23,7 @@ function setup(mode: 'full' | 'quick' = 'full', askTags = false) {
     <EntryPanel
       game={b.game}
       current={current}
-      players={players}
+      players={roster}
       mode={mode}
       stamp={() => ({ video_time: 42, time_source: 'auto' })}
       video={null}
@@ -119,5 +121,41 @@ describe('quick tag step after a turnover', () => {
     await flush()
     expect(onTag).not.toHaveBeenCalled()
     expect(types(onEvent).map((e) => e.type)).toEqual(['pickup', 'throwaway'])
+  })
+})
+
+describe('mid-point subs', () => {
+  it('R opens the sub picker; the incoming player takes the disc and is on the line after', async () => {
+    const { onEvent, key, flush } = setup('full', false, [...players, bench])
+    for (const k of ['2', 'r', '2', 'Enter', '8', 'i', 'Enter']) key(k)
+    await flush()
+    // after the injury sub, #8 has the disc: 3 is a pass from #8; #2 is no longer on the line
+    for (const k of ['3']) key(k)
+    await flush()
+    const ev = types(onEvent)
+    expect(ev.map((e) => e.type)).toEqual(['pickup', 'injury', 'catch'])
+    expect(ev[1]).toMatchObject({ actor_id: 'b', receiver_id: 'h' })
+    expect(ev[2]).toMatchObject({ actor_id: 'h', receiver_id: 'c' })
+    expect((onEvent.mock.calls[1] as unknown[])[1]).toEqual({ video_time: 42, time_source: 'auto' })
+  })
+
+  it('warns (does not block) when the sub breaks the ratio', async () => {
+    const { onEvent, key, flush } = setup('full', false, [...players, bench])
+    for (const k of ['r', '4']) key(k) // W off ...
+    await flush()
+    key('8') // ... M on: 3W/4M on a W4 point
+    await flush()
+    expect(document.body.textContent).toContain('ratio warning')
+    key('Enter')
+    await flush()
+    expect(types(onEvent).map((e) => e.type)).toEqual(['sub'])
+    expect(document.body.textContent).toContain('Ratio warning')
+  })
+
+  it('Esc cancels the picker without recording; keys go back to entry', async () => {
+    const { onEvent, key, flush } = setup('full', false, [...players, bench])
+    for (const k of ['r', 'Escape', '3']) key(k)
+    await flush()
+    expect(types(onEvent).map((e) => e.type)).toEqual(['pickup'])
   })
 })

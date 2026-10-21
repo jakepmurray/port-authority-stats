@@ -29,6 +29,8 @@ export function PlayerStatsTable({ stats, byId, showYards }: { stats: PlayerStat
   let cols = showYards
     ? [...COLS, { key: 'throw_yards', label: 'TYd', title: 'Throwing yards' } as Col, { key: 'recv_yards', label: 'RYd', title: 'Receiving yards' } as Col]
     : COLS
+  if (stats.some((s) => s.partial_points > 0))
+    cols = [...cols.slice(0, 3), { key: 'partial_points', label: 'Part', title: 'Points where the player subbed in or out mid-point (also in Pts)' } as Col, ...cols.slice(3)]
   if (stats.some((s) => s.points_missed > 0))
     cols = [...cols.slice(0, 3), { key: 'points_missed', label: 'Miss', title: 'Points on the line but missed on film (not in Pts)' } as Col, ...cols.slice(3)]
   const rows = [...stats].sort((a, b) => ((b[sort] as number) ?? -1) - ((a[sort] as number) ?? -1))
@@ -87,6 +89,7 @@ export function TeamSummary({ team, opp, opponent }: { team: TeamStats; opp: Opp
         {cell('Ds', team.ds)}
         {cell('Goals/poss', pct(team.scoring_efficiency), 'Scoring efficiency: goals per possession')}
         {cell('Pulls', `${team.pulls_in}/${team.pulls}`, `In / total (OB ${team.pulls_ob}, brick ${team.pulls_brick})`)}
+        {team.subs > 0 && cell('Subs', team.subs, `Mid-point subs (${team.injury_subs} injury)`)}
         {team.points_missed > 0 &&
           cell('Missed on film', team.points_missed, 'Points with a hand-entered result. In the score and holds/breaks; not in player stats or per-point rates.')}
       </div>

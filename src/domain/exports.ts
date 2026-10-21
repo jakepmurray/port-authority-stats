@@ -33,7 +33,7 @@ export function gamesCsv(d: AllData) {
       score_us: s.state.score.us, score_them: s.state.score.them,
       result: s.state.over ? (s.state.winner === 'us' ? 'W' : s.state.winner === 'them' ? 'L' : 'T') : 'in progress',
       holds: s.team.holds, breaks: s.team.breaks, o_conversion: r3(s.team.o_conversion), d_break_pct: r3(s.team.d_break_pct),
-      turnovers: s.team.turnovers, opp_turnovers: s.opponent.turnovers, points_missed_on_film: s.team.points_missed,
+      turnovers: s.team.turnovers, opp_turnovers: s.opponent.turnovers, points_missed_on_film: s.team.points_missed, subs: s.team.subs, injury_subs: s.team.injury_subs,
       turnover_tags: formatTagBreakdown(s.team.turnover_tags), opp_turnover_tags: formatTagBreakdown(s.opponent.turnover_tags), youtube: g.video.youtube_id ? `https://youtu.be/${g.video.youtube_id}` : '',
     }
   })

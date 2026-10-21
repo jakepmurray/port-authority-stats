@@ -7,6 +7,7 @@ import { formatClock, parseClock } from '../domain/time'
 import { Badge, Btn, Input, Select } from './kit'
 import { describeEvent, EVENT_LABEL, playerLabel } from './labels'
 import { toggleTag, userTags } from '../domain/tags'
+import { isSub, lineAfterSub, lineTimeline, subRatioIssues } from '../domain/subs'
 
 const OUTCOME: Record<Point['outcome'], string> = { hold: 'hold', break: 'BREAK', broken: 'broken', them_hold: 'their hold', none: '' }
 
@@ -74,6 +75,14 @@ export function EventLog({
         const i = info.get(p.id)
         const evs = allEvents.filter((e) => e.point_id === p.id && (showDeleted || !e.deleted) && matches(e)).sort((a, b) => a.seq - b.seq)
         if (tagFilter && evs.length === 0) return null
+        // Ratio warnings for subs, from the derived line at each sub.
+        const tl = lineTimeline(p.line, evs.filter((e) => !e.deleted))
+        const subWarn = new Map<string, string>()
+        for (const e of evs) {
+          if (e.deleted || !isSub(e)) continue
+          const issues = subRatioIssues(lineAfterSub(tl.at.get(e.id) ?? p.line, e.actor_id, e.receiver_id), players, p.ratio)
+          if (issues.length) subWarn.set(e.id, issues.map((x) => x.message).join('; '))
+        }
         return (
           <div key={p.id} className={`rounded-lg border border-slate-800 ${p.deleted ? 'opacity-40' : ''}`}>
             <div className="flex flex-wrap items-center gap-2 bg-slate-900 px-2 py-1 text-xs">
@@ -96,7 +105,10 @@ export function EventLog({
                 </Badge>
               )}
               {p.edited_at && <Badge>edited</Badge>}
-              <span className="truncate text-slate-500">{p.line.map((id) => byId.get(id)?.number ?? '?').join(' ')}</span>
+              <span className="truncate text-slate-500" title={tl.subs ? 'Starting line; subs change it during the point' : undefined}>
+                {p.line.map((id) => byId.get(id)?.number ?? '?').join(' ')}
+                {tl.subs > 0 && ` · ${tl.subs} sub${tl.subs > 1 ? 's' : ''}`}
+              </span>
               <span className="ml-auto flex gap-1">
                 <Btn size="sm" tone="ghost" onClick={() => setEditing(editing === `point:${p.id}` ? null : `point:${p.id}`)}>
                   Edit
@@ -137,6 +149,11 @@ export function EventLog({
                         {t}
                       </button>
                     ))}
+                    {subWarn.has(e.id) && (
+                      <span title={subWarn.get(e.id)}>
+                        <Badge tone="warn">ratio</Badge>
+                      </span>
+                    )}
                     {e.edited_at && <Badge>edited</Badge>}
                     {e.time_source === 'manual' && <Badge>manual time</Badge>}
                     <span className="flex gap-1 opacity-60 group-hover:opacity-100">
@@ -306,8 +323,18 @@ export function EventEditor({
           )
         })}
       </div>
-      <PlayerSelect label="Actor / thrower" value={d.actor_id} players={players} onChange={(v) => set('actor_id', v)} />
-      <PlayerSelect label="Receiver" value={d.receiver_id} players={players} onChange={(v) => set('receiver_id', v)} />
+      <PlayerSelect
+        label={d.type === 'sub' || d.type === 'injury' ? 'Coming off' : 'Actor / thrower'}
+        value={d.actor_id}
+        players={players}
+        onChange={(v) => set('actor_id', v)}
+      />
+      <PlayerSelect
+        label={d.type === 'sub' || d.type === 'injury' ? 'Coming on' : 'Receiver'}
+        value={d.receiver_id}
+        players={players}
+        onChange={(v) => set('receiver_id', v)}
+      />
       <PlayerSelect label="Defender" value={d.defender_id} players={players} onChange={(v) => set('defender_id', v)} />
       <label className="flex flex-col gap-0.5 text-xs text-slate-400">
         Note

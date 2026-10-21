@@ -5,7 +5,7 @@ export const playerLabel = (p: Player | undefined | null) => (p ? `#${p.number} 
 export const EVENT_LABEL: Record<GameEvent['type'], string> = {
   pull: 'Pull', pickup: 'Pickup', catch: 'Pass', throw: 'Throw', turnover: 'Turnover', drop: 'Drop',
   throwaway: 'Throwaway', stall: 'Stall', D: 'Block', callahan: 'Callahan', goal: 'Goal', timeout: 'Timeout',
-  sub: 'Sub', injury: 'Injury', half: 'Half', cap: 'Cap', note: 'Note',
+  sub: 'Sub', injury: 'Injury sub', half: 'Half', cap: 'Cap', note: 'Note',
 }
 
 /** One-line human description of an event. */
@@ -33,6 +33,10 @@ export function describeEvent(e: GameEvent, byId: Map<string, Player>, opponent 
       return them ? `${opponent} block` : `Block by ${n(e.defender_id)}`
     case 'callahan':
       return them ? `${opponent} Callahan (thrown by ${n(e.actor_id)})` : `CALLAHAN ${n(e.defender_id)}`
+    case 'sub':
+    case 'injury':
+      if (them) return `${opponent} ${e.type === 'injury' ? 'injury sub' : 'sub'}`
+      return `${e.type === 'injury' ? 'Injury sub' : 'Sub'}: ${n(e.actor_id)} off → ${n(e.receiver_id)} on`
     case 'timeout':
       return `Timeout ${them ? opponent : 'us'}`
     case 'cap':

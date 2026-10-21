@@ -25,6 +25,7 @@ Paste a YouTube link, watch the game beside a stat panel, and every stat you ent
 | `B` | Block. On their possession: then our defender's number. |
 | `C` | Callahan. |
 | `P` | Pull (in). OB / brick buttons on screen. |
+| `R` | Mid-point sub: number of who comes off, then who comes on (`I` = injury sub, `Enter` saves, `-` unknown). |
 | `-` | Unknown player for the current slot. |
 | `U`, `Backspace`, `Ctrl+Z` | Undo. `Esc` cancels a half-typed command. |
 | `Space`, `←`/`→` (`Shift` = 1 s), `[` / `]` | Play/pause, seek ±5 s, 0.5× / 1× speed. |
@@ -54,6 +55,10 @@ Paste a YouTube link, watch the game beside a stat panel, and every stat you ent
 - +/-: goals + assists + Ds − turnovers.
 - O conversion: holds ÷ finished O points. D break %: breaks ÷ finished D points.
 - The opponent is tracked at team level only.
+- Mid-point subs (regular or injury): both players get the point played (`Pts`, and O/D points), and both also get a
+  partial point (`Part`), so you can tell full points from part points. Stats go to whoever made the play. If the player
+  coming off had the disc, the player coming on takes it (same count). Who is on the line is recomputed from the subs,
+  so editing or deleting a sub fixes every later event. A sub that breaks the point's ratio is recorded with a warning.
 - Turnovers by tag: each tagged turnover, by type, for the team and per player (and the opponent's turns by tag).
   Tags never move the turnover to someone else.
 - Points missed on film count in the score and in holds/breaks, but not in per-player points or event stats, and not in

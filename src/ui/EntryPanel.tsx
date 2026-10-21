@@ -8,6 +8,8 @@ import { Btn } from './kit'
 import { EVENT_LABEL, playerLabel } from './labels'
 import { MiniStore } from './store'
 import { TAGGABLE_TURNOVERS, toggleTag } from '../domain/tags'
+import { lineAfterSub, lineTimeline, subRatioIssues } from '../domain/subs'
+import { SubPicker } from './Pickers'
 import type { VideoController } from './video/controller'
 
 interface Pending {
@@ -16,6 +18,12 @@ interface Pending {
   filled: (string | null)[]
   time: TimeStamp
   extra?: Partial<Command>
+}
+
+/** A picker that owns the keyboard while open; time is stamped when it opens. */
+interface Modal {
+  kind: 'sub'
+  time: TimeStamp
 }
 
 /** The quick tag step after a turnover. */
@@ -71,12 +79,13 @@ export function EntryPanel({
 }) {
   // Entry state lives in a ref so fast typing never reads a stale render.
   const [store] = useState(
-    () => new MiniStore<{ buffer: string; bufferTime: TimeStamp | null; pending: Pending | null; optimistic: GameEvent[]; tagging: Tagging | null }>({
+    () => new MiniStore<{ buffer: string; bufferTime: TimeStamp | null; pending: Pending | null; optimistic: GameEvent[]; tagging: Tagging | null; modal: Modal | null }>({
       buffer: '',
       bufferTime: null,
       pending: null,
       optimistic: [],
       tagging: null,
+      modal: null,
     }),
   )
   const snap = useSyncExternalStore(store.subscribe, store.get)
@@ -86,9 +95,6 @@ export function EntryPanel({
   const waitTimer = useRef<number | null>(null)
 
   const byId = new Map(players.map((p) => [p.id, p]))
-  const lineSet = new Set(current.point.line)
-  const linePlayers = current.point.line.map((id) => byId.get(id)).filter((p): p is Player => !!p)
-  const candidates = (linePlayers.length ? linePlayers : players.filter((p) => !p.deleted && p.active)).map((p) => ({ id: p.id, number: p.number }))
   const allNumbers = players.filter((p) => !p.deleted).map((p) => ({ id: p.id, number: p.number }))
 
   // Drop optimistic events once they are in the database.
@@ -100,7 +106,14 @@ export function EntryPanel({
   const saved = useRef(current.events)
   const eventsNow = () => merge(saved.current, store.get().optimistic)
   const stateNow = () => replayPoint(current.point.start_on, eventsNow())
-  const st = replayPoint(current.point.start_on, merge(current.events, snap.optimistic))
+  const shown = merge(current.events, snap.optimistic)
+  const st = replayPoint(current.point.start_on, shown)
+  // Who is on the field now, after any mid-point subs (derived, so edits and deletes flow through).
+  const lineIds = lineTimeline(current.point.line, shown).final
+  const lineSet = new Set(lineIds)
+  const linePlayers = lineIds.map((id) => byId.get(id)).filter((p): p is Player => !!p)
+  const candidates = (linePlayers.length ? linePlayers : players.filter((p) => !p.deleted && p.active)).map((p) => ({ id: p.id, number: p.number }))
+  const bench = players.filter((p) => !p.deleted && p.active && !lineSet.has(p.id))
   useEffect(() => {
     saved.current = current.events
     const known = new Set(current.events.map((e) => e.id))
@@ -248,6 +261,29 @@ export function EntryPanel({
     clearBuffer()
   }
 
+  const openModal = (kind: Modal['kind']) => {
+    finishTags(true)
+    // Take a half-typed number first, as action keys do.
+    const buf = store.get().buffer
+    if (buf && !store.get().pending) {
+      const r = resolveNumber(buf, candidates)
+      const id = r.status === 'match' ? r.id : r.status === 'wait' ? r.exact : null
+      if (id) fill(id)
+    }
+    cancel()
+    store.set({ modal: { kind, time: stamp() } })
+  }
+  const closeModal = () => store.set({ modal: null })
+  const saveSub = ({ off, on, injury }: { off: string | null; on: string | null; injury: boolean }) => {
+    const m = store.get().modal
+    closeModal()
+    const now = lineTimeline(current.point.line, eventsNow()).final
+    record({ type: injury ? 'injury' : 'sub', team: 'us', actor_id: off, receiver_id: on, defender_id: null, tags: [] }, m?.time ?? stamp())
+    const issues = subRatioIssues(lineAfterSub(now, off, on), players, current.point.ratio)
+    const label = `${injury ? 'Injury sub' : 'Sub'}: ${off ? playerLabel(byId.get(off)) : 'unknown'} off, ${on ? playerLabel(byId.get(on)) : 'unknown'} on`
+    say(issues.length ? `${label}. Ratio warning: ${issues.map((i) => i.message).join('; ')}` : label, issues.length > 0)
+  }
+
   const undo = () => {
     store.set({ tagging: null })
     cancel()
@@ -257,9 +293,9 @@ export function EntryPanel({
   }
 
   // Keep the latest handlers for the window listener.
-  const h = useRef({ typeDigit, enter, start, fill, undo, cancel, video, finishTags, toggleChoice, tagChoices })
+  const h = useRef({ typeDigit, enter, start, fill, undo, cancel, video, finishTags, toggleChoice, tagChoices, openModal })
   useEffect(() => {
-    h.current = { typeDigit, enter, start, fill, undo, cancel, video, finishTags, toggleChoice, tagChoices }
+    h.current = { typeDigit, enter, start, fill, undo, cancel, video, finishTags, toggleChoice, tagChoices, openModal }
   })
   useEffect(() => () => {
     if (waitTimer.current) window.clearTimeout(waitTimer.current)
@@ -269,6 +305,8 @@ export function EntryPanel({
     const onKey = (e: KeyboardEvent) => {
       if (isTyping(e.target)) return
       const c = h.current
+      // While a picker is open it owns the keys; only video controls pass through.
+      if (store.get().modal && !(c.video && [' ', 'ArrowLeft', 'ArrowRight'].includes(e.key))) return
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault()
         return c.undo()
@@ -307,6 +345,10 @@ export function EntryPanel({
       if (k === 'ArrowRight' && c.video) return c.video.nudge(e.shiftKey ? 1 : 5)
       if (k === '[' && c.video) return c.video.setRate(0.5)
       if (k === ']' && c.video) return c.video.setRate(1)
+      if (k === 'r' || k === 'R') {
+        e.preventDefault()
+        return c.openModal('sub')
+      }
       const hk = HOTKEYS.find((x) => x.key === k.toLowerCase())
       if (hk) {
         e.preventDefault()
@@ -317,7 +359,7 @@ export function EntryPanel({
     return () => window.removeEventListener('keydown', onKey)
   }, [current.point.pulled_by, store])
 
-  const { buffer, pending, tagging } = snap
+  const { buffer, pending, tagging, modal } = snap
 
   const holder = st.holder ? byId.get(st.holder) : null
   const promptText = tagging
@@ -353,6 +395,16 @@ export function EntryPanel({
         {promptText}
       </div>
       {msg && <div className={`text-xs ${msg.bad ? 'text-rose-300' : 'text-slate-400'}`}>{msg.text}</div>}
+      {modal?.kind === 'sub' && (
+        <SubPicker
+          line={linePlayers}
+          bench={bench}
+          holder={st.holder}
+          issuesFor={(off, on) => subRatioIssues(lineAfterSub(lineIds, off, on), players, current.point.ratio)}
+          onSave={saveSub}
+          onCancel={closeModal}
+        />
+      )}
       {tagging && (
         <TagStep tagging={tagging} choices={tagChoices} onToggle={toggleChoice} onAdd={addCustom} onDone={() => finishTags(true)} onSkip={() => finishTags(false)} />
       )}
@@ -399,6 +451,9 @@ export function EntryPanel({
             {act('pull', 'Brick', undefined, { result: 'brick', puller: current.point.pulled_by } as Partial<Command>)}
           </>
         )}
+        <Btn size="sm" onClick={() => openModal('sub')} title="Key: R. Mid-point sub (regular or injury)">
+          Sub <kbd className="ml-1 rounded bg-black/30 px-1 text-[10px] text-slate-300">R</kbd>
+        </Btn>
         <Btn size="sm" onClick={() => record({ type: 'timeout', team: 'us', actor_id: null, receiver_id: null, defender_id: null, tags: [] }, stamp())}>
           Timeout us
         </Btn>

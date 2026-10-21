@@ -1,6 +1,7 @@
 import { deriveGame, META_TYPES, type GameState } from './game'
 import type { Game, GameEvent, Player, Point } from './schema'
 import { userTags } from './tags'
+import { lineTimeline } from './subs'
 
 /**
  * Stats are pure functions over the event log (PLAN.md §6). Definitions:
@@ -40,6 +41,8 @@ export interface PlayerStats {
   plus_minus: number
   throw_yards: number
   recv_yards: number
+  /** Points where the player came on or went off mid-point (also counted in `points`). */
+  partial_points: number
   /** On the line for points missed on film (not counted in `points`). */
   points_missed: number
   turnover_tags: TagBreakdown
@@ -68,6 +71,7 @@ export const emptyPlayerStats = (player_id: string): PlayerStats => ({
   plus_minus: 0,
   throw_yards: 0,
   recv_yards: 0,
+  partial_points: 0,
   points_missed: 0,
   turnover_tags: {},
 })
@@ -97,6 +101,9 @@ export interface TeamStats {
   pulls_in: number
   pulls_ob: number
   pulls_brick: number
+  /** Mid-point substitutions (regular + injury). */
+  subs: number
+  injury_subs: number
   /** Points with a hand-entered result and no film (included in `points`). */
   points_missed: number
   /** Our turnovers by tag. */
@@ -163,7 +170,7 @@ export function computeGameStats(game: Game, points: Point[], events: GameEvent[
     points: 0, o_points: 0, d_points: 0, holds: 0, breaks: 0, broken: 0, them_holds: 0,
     o_conversion: null, d_break_pct: null, goals: 0, completions: 0, turnovers: 0,
     turnovers_per_point: null, ds: 0, callahans: 0, possessions: 0, scoring_efficiency: null,
-    pulls: 0, pulls_in: 0, pulls_ob: 0, pulls_brick: 0, points_missed: 0, turnover_tags: {},
+    pulls: 0, pulls_in: 0, pulls_ob: 0, pulls_brick: 0, subs: 0, injury_subs: 0, points_missed: 0, turnover_tags: {},
   }
   const opp: OpponentStats = { goals: 0, turnovers: 0, ds: 0, callahans: 0, holds: 0, breaks: 0, possessions: 0, turnover_tags: {} }
   /** Charge one of our turnovers: team breakdown always, player breakdown when known. */
@@ -188,15 +195,24 @@ export function computeGameStats(game: Game, points: Point[], events: GameEvent[
     if (missed) team.points_missed++
     if (point.start_on === 'O') team.o_points++
     else team.d_points++
-    for (const id of new Set(point.line)) {
-      const s = P(id)!
-      if (missed) {
-        s.points_missed++
-        continue
+    if (missed) {
+      for (const id of new Set(point.line)) P(id)!.points_missed++
+    } else {
+      // Everyone who was on the field gets the point; subs in and out also get a partial point.
+      const tl = lineTimeline(point.line, evs)
+      for (const id of tl.everOn) {
+        const s = P(id)!
+        s.points++
+        if (point.start_on === 'O') s.o_points++
+        else s.d_points++
+        if (tl.partial.has(id)) s.partial_points++
       }
-      s.points++
-      if (point.start_on === 'O') s.o_points++
-      else s.d_points++
+      for (const e of evs) {
+        if ((e.type === 'sub' || e.type === 'injury') && e.team === 'us') {
+          team.subs++
+          if (e.type === 'injury') team.injury_subs++
+        }
+      }
     }
     if (info.state.over) {
       if (point.start_on === 'O') finishedO++
