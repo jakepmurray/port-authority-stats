@@ -222,6 +222,8 @@ export function EntryPanel({
       }
       if (e.ctrlKey || e.metaKey || e.altKey) return
       const k = e.key
+      // Enter/Space must not also "click" a focused button (e.g. a player tile).
+      if ((k === 'Enter' || k === ' ') && e.target instanceof HTMLButtonElement) e.preventDefault()
       if (/^\d$/.test(k)) return c.typeDigit(k)
       if (k === 'Enter') return c.enter()
       if (k === 'Escape') return c.cancel()
