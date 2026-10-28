@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import { repo } from '../../db/repo'
 import type { Game } from '../../domain/schema'
 import { formatClock, parseClock } from '../../domain/time'
+import { usesClock } from '../../domain/game'
 import { Btn, Input } from '../kit'
 import type { VideoController } from './controller'
 import { openPopout, useVideoStatus } from './popout'
@@ -30,7 +31,7 @@ export function Transport({ c, game, compact }: { c: VideoController; game: Game
           {r}×
         </Btn>
       ))}
-      {!compact && (
+      {!compact && usesClock(game) && (
         <>
           <span className="ml-auto text-xs text-slate-400" title="Game clock = video time − game start. Used for caps.">
             Game clock {clockMin === null ? '–' : `${Math.floor(clockMin)}′`}

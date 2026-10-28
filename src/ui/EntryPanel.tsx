@@ -491,11 +491,6 @@ export function EntryPanel({
         <Btn size="sm" onClick={() => record({ type: 'timeout', team: 'them', actor_id: null, receiver_id: null, defender_id: null, tags: [] }, stamp())}>
           Timeout them
         </Btn>
-        {(['half', 'soft', 'hard'] as const).map((k) => (
-          <Btn key={k} size="sm" tone="ghost" onClick={() => record({ type: 'cap', team: 'us', actor_id: null, receiver_id: null, defender_id: null, tags: [k] }, stamp())}>
-            {k} cap
-          </Btn>
-        ))}
         <Btn
           size="sm"
           tone="ghost"

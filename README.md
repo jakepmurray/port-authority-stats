@@ -43,8 +43,24 @@ Paste a YouTube link, watch the game beside a stat panel, and every stat you ent
 - **Full / Quick:** Full is pass-by-pass. Quick is goals, assists, Ds and turns only.
 - **Play-by-play:** click a time to jump the film there (3 s before). Edit, insert (`+`) or delete any event; edit any point
   (line, O/D, ratio, puller). Deletes are soft and can be restored ("show deleted"). Hand edits are marked *edited*.
-- **Caps:** set the game start with *Set game start*; the game clock warns when a cap is due. Press *half/soft/hard cap*
-  during the point when it goes on; the app finishes the point and sets the new target (higher score + 1).
+- **End game (key `E`):** closes the game whatever the score or clock, after a confirmation. The final score is what you
+  recorded (a point in progress stays unscored) and the result is W, L or T from it. It also adds a *Game ended* marker
+  with the film time to the play-by-play. To undo, use *Reopen*, Undo (`U`) or delete the marker. An ended game can
+  still be edited like any record. Reaching the game-to (or a capped target) shows *Target reached* and counts as
+  final, but never locks the game: *End game* closes it, or *Play another point* if play went on.
+- **Cap went off (key `K`, then `1` half / `2` soft / `3` hard):** marks the cap at the current film time, during a
+  point or between points. When that cap is set on the game, the new target follows USAU rules:
+  - **Soft:** the higher score + 1, set after the point in progress.
+  - **Hard:** the point in progress is the last one, plus one more if tied. Between points, the game is final unless
+    it is tied.
+  - **Half:** halftime at the higher score + 1.
+
+  Nothing is forced. The header shows the target, and you can edit the marker (*Which cap*) or delete it in the
+  play-by-play. If the cap is not set on the game, the marker is a note only.
+- **Game clock (optional, off by default):** turn it on per game (*Game clock* in the workspace or game settings). It
+  shows the game clock (video time − *Set game start*) and warns when a cap is due. It is off by default because film
+  often starts late or cuts, which makes the clock wrong. Mark caps by hand instead. When it is off, the clock, the
+  cap timers and the warnings are hidden.
 - **Import from UltiAnalytics:** see [Import from UltiAnalytics](#import-from-ultianalytics) below; it's on the *Data* page.
 - **Sheet sync:** see [Google Sheet sync](#google-sheet-sync-free) below; set it up under *Settings*.
 - **Data:** download a JSON backup after each game; restore (merge or replace) on any device. CSV export for player stats,
@@ -115,6 +131,8 @@ The app pushes your stats to a Google Sheet you own, through a small Apps Script
 3. Under Version, choose New version, then click Deploy. The /exec URL stays the same, so nothing changes in the app.
 4. Don’t use Deploy > New deployment for updates: that creates a new URL.
 
+Script version 2 (October 2026) adds the `game_clock` and `ended_at` columns to the Games tab. The new script adds them to an existing Sheet on the next sync, and *Test connection* says when the script is older than the app. The **Game Stats** `result` column (W / L / T / in progress) uses the manual end.
+
 ## Import from UltiAnalytics
 
 Games tracked with the UltiAnalytics (iUltimate) app can be imported on the **Data** page. Nothing is saved until you have reviewed the games and players.
@@ -134,7 +152,7 @@ Games tracked with the UltiAnalytics (iUltimate) app can be imported on the **Da
 
 ### What gets imported
 
-- **Games:** opponent, tournament and date. The game-to is UltiAnalytics' game point if set, otherwise the winning score. There are no caps.
+- **Games:** opponent, tournament and date. The game-to is UltiAnalytics' game point if set, otherwise the winning score. There are no caps. Imported games are marked ended at their recorded score (earlier imports are marked ended when the app updates).
 - **Points:** O/D from UltiAnalytics' Line column, the line, and the score. The outcome (hold, break…) is worked out from the events and checked against UltiAnalytics' score; any point that disagrees is flagged in the preview.
 - **Events:** pulls (OB pulls tagged `ob`, hang time in the note), catches, goals, throwaways, drops, stalls, Ds, Callahans (both ways), misc. penalties (as an other turnover), timeouts (ours: UltiAnalytics only tracks the stat-keeping team's), halftime, and subs/injuries (team link only). Quarter ends become notes; "game over" is dropped. Every event is marked source `import` with no video time.
 - **Opponent:** team totals only, as for every game here.

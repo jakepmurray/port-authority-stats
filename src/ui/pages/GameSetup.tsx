@@ -31,6 +31,7 @@ export function GameSetup({ game }: { game?: Game }) {
     url: game?.video.url ?? (game?.video.youtube_id ? `https://youtu.be/${game.video.youtube_id}` : ''),
     offset: game ? formatClock(game.video.offset_s) : '',
     notes: game?.notes ?? '',
+    use_clock: game?.use_clock === true,
   }))
   const [preset, setPreset] = useState<Preset>(presetOf(f.caps))
   const [err, setErr] = useState<string | null>(null)
@@ -49,6 +50,7 @@ export function GameSetup({ game }: { game?: Game }) {
     const data = {
       opponent: f.opponent.trim(), tournament: f.tournament.trim(), date: f.date, game_to: f.game_to, caps: f.caps,
       timeouts_per_half: f.timeouts_per_half, ratio_first: f.ratio_first, start_on: f.start_on, video, notes: f.notes,
+      use_clock: f.use_clock,
     }
     try {
       if (game) {
@@ -137,9 +139,20 @@ export function GameSetup({ game }: { game?: Game }) {
           <Field label="YouTube link" hint={f.url ? (vid ? `Video id ${vid}` : 'Not a YouTube link') : 'Optional. Paste the game film link.'}>
             <Input value={f.url} onChange={(e) => set('url', e.target.value)} placeholder="https://youtu.be/…" />
           </Field>
-          <Field label="Game starts at (video time)" hint="Used for the cap clock. You can set it later from the player.">
-            <Input value={f.offset} onChange={(e) => set('offset', e.target.value)} placeholder="0:00" />
-          </Field>
+          <label className="flex items-start gap-2 text-sm sm:col-span-2">
+            <input type="checkbox" className="mt-1" checked={f.use_clock} onChange={(e) => set('use_clock', e.target.checked)} />
+            <span>
+              Use the game clock (cap timers from the video time)
+              <span className="block text-xs text-slate-500">
+                Off by default: film often starts late or cuts. Instead, mark caps with “Cap went off” (K) and finish with “End game” (E). The caps above still set the new target when you mark one.
+              </span>
+            </span>
+          </label>
+          {f.use_clock && (
+            <Field label="Game starts at (video time)" hint="Used for the cap clock. You can set it later from the player.">
+              <Input value={f.offset} onChange={(e) => set('offset', e.target.value)} placeholder="0:00" />
+            </Field>
+          )}
           <div className="sm:col-span-2">
             <Field label="Notes">
               <textarea className="rounded-lg border border-slate-700 bg-slate-900 p-2 text-sm" rows={2} value={f.notes} onChange={(e) => set('notes', e.target.value)} />

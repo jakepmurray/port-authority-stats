@@ -81,12 +81,12 @@ A free, open-source stat app for Port Authority (Mixed) that you use **while wat
 Team(id, name, division)
 Player(id, team_id, name, number, gender_match[W|M], role, active, updated_at)
 Game(id, team_id, opponent, tournament, date, game_to, caps{half,soft,hard}, ratio_first[W4|M4],
-     start_on[O|D], video{kind[youtube|file|none], youtube_id?, url?, offset_s}, notes, updated_at)
+     start_on[O|D], video{kind[youtube|file|none], youtube_id?, url?, offset_s}, use_clock, ended_at?, notes, updated_at)
 Point(id, game_id, idx, score_us, score_them, start_on[O|D], ratio, line[player_id×7], pulled_by,
       outcome[hold|break|...], video_start?, video_end?, updated_at)
 Possession(id, point_id, idx, team[us|them])     -- derived from events and cached; editable
 Event(id(uuid), game_id, point_id, possession_id, seq,
-      type[pull|catch|throw|turnover|drop|throwaway|stall|D|callahan|goal|timeout|sub|injury|half|cap|note],
+      type[pull|catch|throw|turnover|drop|throwaway|stall|D|callahan|goal|timeout|sub|injury|half|cap|end|note],
       actor_id?, receiver_id?, defender_id?, team[us|them],
       x?, y?, x_end?, y_end?,           -- field yards: 40 wide × 110 long (70 + 2×20 endzones)
       video_time?, time_source[auto|manual|none], wall_time?,

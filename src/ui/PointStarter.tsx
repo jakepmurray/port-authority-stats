@@ -57,14 +57,6 @@ export function PointStarter({
     </div>
   )
 
-  if (state.over) {
-    return (
-      <div className="rounded-xl border border-emerald-800 bg-emerald-950/40 p-3 text-sm">
-        Game over: {state.score.us}–{state.score.them}. Edit any point or event in the log below if something is wrong.
-      </div>
-    )
-  }
-
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-slate-800 bg-slate-900/60 p-3">
       <div className="flex flex-wrap items-center gap-2">

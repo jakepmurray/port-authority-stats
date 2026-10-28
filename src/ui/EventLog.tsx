@@ -287,6 +287,21 @@ export function EventEditor({
           ))}
         </Select>
       </label>
+      {d.type === 'cap' && (
+        <label className="flex flex-col gap-0.5 text-xs text-slate-400">
+          Which cap
+          <Select
+            aria-label="Which cap"
+            value={d.tags.find((t) => t === 'half' || t === 'soft' || t === 'hard') ?? ''}
+            onChange={(e) => set('tags', [...d.tags.filter((t) => t !== 'half' && t !== 'soft' && t !== 'hard'), ...(e.target.value ? [e.target.value] : [])])}
+          >
+            <option value="">(not set)</option>
+            <option value="half">Half cap</option>
+            <option value="soft">Soft cap</option>
+            <option value="hard">Hard cap</option>
+          </Select>
+        </label>
+      )}
       <label className="flex flex-col gap-0.5 text-xs text-slate-400">
         Team
         <Select value={d.team} onChange={(e) => set('team', e.target.value as GameEvent['team'])}>

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { actions, type TimeStamp } from '../../db/actions'
 import type { EntryMode } from '../../domain/entry'
-import { capsDue } from '../../domain/game'
+import { capsDue, usesClock } from '../../domain/game'
+import { FinalBanner, GameControls } from '../GameEnd'
+import { repo } from '../../db/repo'
 import { parseClock } from '../../domain/time'
 import { EntryPanel } from '../EntryPanel'
 import { EventLog } from '../EventLog'
@@ -25,6 +27,7 @@ export function Workspace({ gameId }: { gameId: string }) {
   const [manualTime, setManualTime] = useState('')
   const [video] = useState(() => new VideoController(gameId))
   const [err, setErr] = useState<string | null>(null)
+  const [playOn, setPlayOn] = useState(false)
   useEffect(() => () => video.dispose(), [video])
 
   const hasVideo = !!game?.video.youtube_id
@@ -68,7 +71,8 @@ export function Workspace({ gameId }: { gameId: string }) {
   if (loading) return <p className="p-4 text-slate-400">Loading…</p>
   if (!game || !stats || !points || !events || !players) return <p className="p-4 text-slate-400">Game not found.</p>
   const st = stats.state
-  const clockMin = status.time !== null && layout !== 'stats' ? (status.time - game.video.offset_s) / 60 : null
+  const clockOn = usesClock(game) && layout !== 'stats'
+  const clockMin = clockOn && status.time !== null ? (status.time - game.video.offset_s) / 60 : null
   const due = clockMin !== null ? capsDue(game.caps, clockMin) : { half: false, soft: false, hard: false }
   const half = st.halfReached ? 2 : 1
   const toLeft = (t: 'us' | 'them') => game.timeouts_per_half - st.timeouts[half][t]
@@ -102,7 +106,7 @@ export function Workspace({ gameId }: { gameId: string }) {
         </span>
         <Badge>to {st.target}{st.target < game.game_to ? ' (capped)' : ''}</Badge>
         <Badge>{st.halfReached ? '2nd half' : `1st half · to ${st.halfTarget}`}</Badge>
-        {st.over && <Badge tone={st.winner === 'us' ? 'good' : 'bad'}>Final</Badge>}
+        {st.over && !st.ended && <Badge tone={st.result === 'W' ? 'good' : st.result === 'L' ? 'bad' : 'default'}>Target reached · {st.result}</Badge>}
         <span className="text-xs text-slate-400" title="Timeouts left this half">
           TO us {toLeft('us')} · them {toLeft('them')}
         </span>
@@ -113,7 +117,13 @@ export function Workspace({ gameId }: { gameId: string }) {
             </Badge>
           ) : null,
         )}
+        <GameControls game={game} state={st} stamp={stamp} onError={setErr} />
         <div className="ml-auto flex flex-wrap items-center gap-1">
+          {hasVideo && (
+            <label className="mr-1 flex items-center gap-1 text-xs text-slate-300" title="Game clock from the video time, with cap timers and warnings. Off: mark caps by hand (K).">
+              <input type="checkbox" checked={usesClock(game)} onChange={(e) => void run(repo.update('games', game.id, { use_clock: e.target.checked }, { byHand: true }))} /> Game clock
+            </label>
+          )}
           {layoutBtn('video', 'Video', 'Video beside the stat panel')}
           {layoutBtn('collapsed', 'Collapse', 'Hide the video, keep it playing (controls stay)')}
           {layoutBtn('popout', 'Pop out', 'Move the video to its own window (for a second screen)')}
@@ -156,7 +166,7 @@ export function Workspace({ gameId }: { gameId: string }) {
               Stats
             </Btn>
             <span className="ml-auto hidden self-center text-[11px] text-slate-500 sm:inline">
-              Keys: 0–9 player · G T D B C S X P · R sub · F call · U undo · Space play · ←/→ 5 s
+              Keys: 0–9 player · G T D B C S X P · R sub · F call · K cap · E end · U undo · Space play · ←/→ 5 s
             </span>
           </div>
           {tab === 'entry' ? (
@@ -179,6 +189,8 @@ export function Workspace({ gameId }: { gameId: string }) {
                     onAddTag={(t) => run(actions.addCustomTag(t)).then(() => undefined)}
                     onMissed={(r) => run(actions.setPointMissed(current.point.id, true, r)).then(() => undefined)}
                   />
+                ) : st.over && !(playOn && !st.ended) ? (
+                  <FinalBanner game={game} state={st} onPlayOn={() => setPlayOn(true)} />
                 ) : (
                   <PointStarter
                     key={st.next.idx}
