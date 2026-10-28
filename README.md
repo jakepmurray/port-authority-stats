@@ -50,6 +50,31 @@ Paste a YouTube link, watch the game beside a stat panel, and every stat you ent
 - **Data:** download a JSON backup after each game; restore (merge or replace) on any device. CSV export for player stats,
   games, points and events (with YouTube links to each moment).
 
+## Dashboard
+
+**Dashboard** (top bar) shows the season at a glance. It works on a phone (one column, filters fold away) and on a laptop (several columns).
+
+- **Headline cards:** record, point diff, hold %, break %, turnovers per point, blocks per point and completion %. Each has a small per-game line, and an arrow comparing the last 3 games with the earlier ones (from 4 games).
+- **Charts:**
+  - hold % and break % by game;
+  - turnovers by type, stacked by tag (ours or theirs);
+  - player leaderboard (totals or per point, sortable, with a minimum-points setting);
+  - player scatter (throws per point vs completion %, or +/- per point vs points played);
+  - hold and break by gender ratio (4 WMP vs 4 MMP);
+  - calls by type and outcome;
+  - a field heatmap, shown only when events have field positions.
+- **Drill-down:** tap a bar segment, dot, player or the turnovers card to list the plays behind it. Each play links to its game, and film plays have a ▶ link that opens YouTube at that moment.
+- **Filters:** tournament, games, O-line or D-line points, source (film, live, imported) and tags. They are saved in the link (for example `#/dashboard?tags=wind`), so **Copy link** shares the exact view.
+- **How tag filters work:** you can pick several tags and match **any** or **all** of them, then choose a mode:
+  - **Count only events with these tags** or **Count only events without them:** these narrow the event counts (turnovers, Ds, passes, goals, calls). The score, holds, breaks and points played still use every play.
+  - **Leave out points that contain them:** this drops those whole points, so holds and breaks change too.
+- **Limits:**
+  - The record always uses whole games.
+  - In the stacked turnover chart, a turnover with several tags is counted under its first tag only.
+  - Completion % is hidden while counting only tagged events, because passes are rarely tagged.
+  - Imported games have no gender ratio, so they are left out of the ratio chart.
+  - Points missed on film count for the score but add no plays.
+
 ## Google Sheet sync (free)
 
 The app pushes your stats to a Google Sheet you own, through a small Apps Script web app

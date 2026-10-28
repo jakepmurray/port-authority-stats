@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { db } from './db/db'
 import { actions } from './db/actions'
 import { useRoute } from './ui/hooks'
@@ -14,6 +14,9 @@ import { Settings } from './ui/pages/Settings'
 import { SyncBadge } from './ui/SyncBadge'
 import { UpdatePrompt } from './ui/UpdatePrompt'
 import { startSync } from './sync'
+
+// Charts are heavy, so the dashboard (and Recharts) loads only when opened.
+const Dashboard = lazy(() => import('./ui/pages/Dashboard').then((m) => ({ default: m.Dashboard })))
 
 function EditGame({ id }: { id: string }) {
   const game = useLiveQuery(() => db.games.get(id), [id])
@@ -35,6 +38,12 @@ export default function App() {
   if (a === 'roster') page = <Roster />
   else if (a === 'new') page = <GameSetup />
   else if (a === 'season') page = <Season />
+  else if (a === 'dashboard')
+    page = (
+      <Suspense fallback={<p className="p-4 text-slate-400">Loading dashboard…</p>}>
+        <Dashboard />
+      </Suspense>
+    )
   else if (a === 'data') page = <DataPage />
   else if (a === 'settings') page = <Settings />
   else if (a === 'game' && b && c === 'edit') page = <EditGame id={b} />
@@ -55,6 +64,7 @@ export default function App() {
         </a>
         {link('#/', 'Games', !a || a === 'game' || a === 'new')}
         {link('#/roster', 'Roster', a === 'roster')}
+        {link('#/dashboard', 'Dashboard', a === 'dashboard')}
         {link('#/season', 'Season', a === 'season')}
         {link('#/data', 'Data', a === 'data')}
         {link('#/settings', 'Settings', a === 'settings')}
