@@ -182,7 +182,12 @@ export function mergeTags(into: TagBreakdown, from: TagBreakdown) {
 
 const dy = (e: GameEvent) => (e.y !== null && e.y_end !== null ? e.y_end - e.y : 0)
 
-export function computeGameStats(game: Game, points: Point[], events: GameEvent[]): GameStats {
+/**
+ * `count` (optional) limits which events are counted (e.g. a tag filter). Every event still
+ * replays for the score, possessions, holds/breaks and who was on the field; only the
+ * per-event tallies (goals, assists, completions, turnovers, Ds, pulls, calls…) are filtered.
+ */
+export function computeGameStats(game: Game, points: Point[], events: GameEvent[], count?: (e: GameEvent) => boolean): GameStats {
   const state = deriveGame(game, points, events)
   const players = new Map<string, PlayerStats>()
   const P = (id: string | null) => {
@@ -260,6 +265,7 @@ export function computeGameStats(game: Game, points: Point[], events: GameEvent[
     if (missed) continue // no event stats from points missed on film
     for (const e of evs) {
       if (e.type !== 'call' || !e.call) continue
+      if (count && !count(e)) continue
       const { kind, outcome } = e.call
       const bump = (b: CallBreakdown) => ((b[kind] ??= {})[outcome] = (b[kind][outcome] ?? 0) + 1)
       if (e.team === 'us') {
@@ -292,6 +298,7 @@ export function computeGameStats(game: Game, points: Point[], events: GameEvent[
     }
     const play = evs.filter((e) => !META_TYPES.has(e.type))
     play.forEach((e, i) => {
+      if (count && !count(e)) return
       const us = e.team === 'us'
       switch (e.type) {
         case 'pull':
