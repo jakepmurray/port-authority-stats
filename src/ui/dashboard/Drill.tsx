@@ -1,4 +1,4 @@
-import type { DrillRow } from '../../domain/dashboard'
+import { shortDate, type DrillRow } from '../../domain/dashboard'
 import { ytLink } from '../../domain/exports'
 import type { Player } from '../../domain/schema'
 import { userTags } from '../../domain/tags'
@@ -29,7 +29,7 @@ export function DrillPanel({ title, rows, byId, onClose, onFilterTag }: { title:
             return (
               <li key={e.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1.5">
                 <a className="text-xs text-sky-300 underline" href={`#/game/${g.id}`} title={g.tournament}>
-                  {g.date ? `${g.date.slice(5)} ` : ''}vs {g.opponent}
+                  {shortDate(g.date) ? `${shortDate(g.date)} ` : ''}vs {g.opponent}
                 </a>
                 {p && <span className="text-xs text-slate-500">pt {p.idx} · {p.start_on} · {p.score_us}–{p.score_them}</span>}
                 <span className="min-w-0 flex-1 text-slate-200">{describeEvent(e, byId, g.opponent)}</span>

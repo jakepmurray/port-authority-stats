@@ -80,7 +80,7 @@ export function Leaderboard({
                   </td>
                   {COLS.map((c) => {
                     const v = value(r, c.key, perPoint)
-                    const top = v !== null && v === best.get(c.key) && c.key !== 'points' && c.key !== 'throw_attempts' && rows.length > 1
+                    const top = v !== null && v !== 0 && v === best.get(c.key) && c.key !== 'points' && c.key !== 'throw_attempts' && rows.length > 1
                     return (
                       <td key={c.key} className={`p-1.5 text-right ${sort === c.key ? 'text-slate-50' : 'text-slate-300'} ${top ? 'font-semibold text-emerald-300' : ''}`}>
                         {show(v, c.key, perPoint)}
