@@ -92,3 +92,14 @@ describe('CSV exports', () => {
     expect(ps).toHaveLength(4)
   })
 })
+
+describe('backup from schema v1', () => {
+  it('marks UltiAnalytics imports ended, leaves other games open', () => {
+    const ua = builder({ id: 'ua', notes: 'Imported [ultianalytics:x]', updated_at: 77 }).game
+    const film = builder({ id: 'film' }).game
+    const bk = { ...makeBackup({ teams: [], players: [], games: [ua, film], points: [], events: [] }, 5), schema_version: 1 }
+    const back = parseBackup(JSON.stringify(bk))
+    expect(back.games.find((g) => g.id === 'ua')!.ended_at).toBe(77)
+    expect(back.games.find((g) => g.id === 'film')!.ended_at).toBeNull()
+  })
+})

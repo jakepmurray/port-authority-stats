@@ -5,7 +5,7 @@ export const playerLabel = (p: Player | undefined | null) => (p ? `#${p.number} 
 export const EVENT_LABEL: Record<GameEvent['type'], string> = {
   pull: 'Pull', pickup: 'Pickup', catch: 'Pass', throw: 'Throw', turnover: 'Turnover', drop: 'Drop',
   throwaway: 'Throwaway', stall: 'Stall', D: 'Block', callahan: 'Callahan', goal: 'Goal', timeout: 'Timeout',
-  sub: 'Sub', injury: 'Injury sub', call: 'Call', half: 'Half', cap: 'Cap', note: 'Note',
+  sub: 'Sub', injury: 'Injury sub', call: 'Call', half: 'Half', cap: 'Cap went off', end: 'Game ended', note: 'Note',
 }
 
 export const CALL_KIND_LABEL: Record<CallKind, string> = {
@@ -58,8 +58,12 @@ export function describeEvent(e: GameEvent, byId: Map<string, Player>, opponent 
     }
     case 'timeout':
       return `Timeout ${them ? opponent : 'us'}`
-    case 'cap':
-      return `${e.tags[0] ?? ''} cap on`.trim()
+    case 'cap': {
+      const k = e.tags.find((t) => t === 'half' || t === 'soft' || t === 'hard')
+      return k ? `${k[0].toUpperCase()}${k.slice(1)} cap went off` : 'Cap went off'
+    }
+    case 'end':
+      return `Game ended (by hand)${e.note ? `: ${e.note}` : ''}`
     case 'half':
       return 'Halftime'
     default:

@@ -109,3 +109,57 @@ describe('importUltiAnalytics', () => {
     expect(q.some((o) => o.table === 'games' && o.row_id === g.id)).toBe(true)
   })
 })
+
+describe('End game, reopen and cap markers', () => {
+  const goal = { type: 'goal' as const, team: 'us' as const, actor_id: 'x', receiver_id: 'y', defender_id: null, tags: [] }
+  it('ends with an end marker (video time), blocks new points, and reopens', async () => {
+    const { g, p } = await setup()
+    await a.addEvent(p.id, goal, T)
+    const ended = await a.endGame(g.id, { video_time: 61, time_source: 'auto' })
+    expect(ended.ended_at).toBeGreaterThan(0)
+    const evs = await a.repo.eventsOfGame(g.id)
+    expect(evs.filter((e) => e.type === 'end')).toHaveLength(1)
+    expect(evs.find((e) => e.type === 'end')!.video_time).toBe(61)
+    let st = deriveGame((await a.repo.get('games', g.id))!, await a.repo.pointsOfGame(g.id), await a.repo.eventsOfGame(g.id))
+    expect(st).toMatchObject({ ended: true, result: 'W', score: { us: 1, them: 0 } })
+    await expect(a.startPoint(g.id, { line: [] })).rejects.toThrow('ended')
+
+    await a.reopenGame(g.id)
+    expect((await a.repo.get('games', g.id))!.ended_at).toBeNull()
+    expect((await a.repo.eventsOfGame(g.id)).filter((e) => e.type === 'end' && !e.deleted)).toHaveLength(0)
+    st = deriveGame((await a.repo.get('games', g.id))!, await a.repo.pointsOfGame(g.id), await a.repo.eventsOfGame(g.id))
+    expect(st.ended).toBe(false)
+    await a.startPoint(g.id, { line: [] })
+  })
+
+  it('undo or deleting the end marker reopens; restoring it ends again', async () => {
+    const { g } = await setup()
+    await a.endGame(g.id, T)
+    expect(await a.undo(g.id)).toBe('event')
+    expect((await a.repo.get('games', g.id))!.ended_at).toBeNull()
+    await a.endGame(g.id, T)
+    const end = (await a.repo.eventsOfGame(g.id)).find((e) => e.type === 'end' && !e.deleted)!
+    await a.deleteEvent(end.id)
+    expect((await a.repo.get('games', g.id))!.ended_at).toBeNull()
+    await a.restoreEvent(end.id)
+    expect((await a.repo.get('games', g.id))!.ended_at).not.toBeNull()
+  })
+
+  it('a game with no points can still be ended', async () => {
+    const g = await a.createGame({ opponent: 'Nobody', ratio_first: 'W4', start_on: 'O' })
+    expect((await a.endGame(g.id)).ended_at).not.toBeNull()
+  })
+
+  it('marks caps mid-point or between points with the film time', async () => {
+    const { g, p } = await setup()
+    const mid = await a.markCap(g.id, 'soft', { video_time: 300, time_source: 'auto' })
+    expect(mid).toMatchObject({ point_id: p.id, type: 'cap', tags: ['soft'], video_time: 300 })
+    await a.addEvent(p.id, goal, T)
+    const between = await a.markCap(g.id, 'hard', T)
+    expect(between.point_id).toBe(p.id) // on the last finished point
+    const st = deriveGame((await a.repo.get('games', g.id))!, await a.repo.pointsOfGame(g.id), await a.repo.eventsOfGame(g.id))
+    expect(st).toMatchObject({ target: 2, over: true, result: 'W', ended: false }) // soft → 2; hard, not tied → final
+    const empty = await a.createGame({ opponent: 'E', ratio_first: 'W4', start_on: 'O' })
+    await expect(a.markCap(empty.id, 'soft', T)).rejects.toThrow('first point')
+  })
+})

@@ -21,6 +21,25 @@ export class StatsDB extends Dexie {
       corrections: 'id, event_id',
       syncQueue: 'op_id, table, row_id',
     })
+    // v2: games gained ended_at / use_clock. Games imported from UltiAnalytics are finished
+    // games, so mark them ended (and queue them so the Sheet gets the new status).
+    this.version(2)
+      .stores({})
+      .upgrade(async (tx) => {
+        const now = Date.now()
+        const games = tx.table<Game, string>('games')
+        const queue = tx.table<SyncOp, string>('syncQueue')
+        await games.toCollection().modify((g) => {
+          g.use_clock ??= false
+          if (g.ended_at === undefined) g.ended_at = null
+          if (g.ended_at === null && !g.deleted && g.notes.includes('[ultianalytics:')) {
+            g.ended_at = now
+            g.updated_at = now
+          }
+        })
+        const ended = (await games.toArray()).filter((g) => g.ended_at === now)
+        await queue.bulkPut(ended.map((g) => ({ op_id: `games:${g.id}`, table: 'games' as const, row_id: g.id, payload: g, attempts: 0, last_error: null })))
+      })
   }
 }
 

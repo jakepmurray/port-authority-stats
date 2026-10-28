@@ -28,6 +28,10 @@ export function parseBackup(json: string): Backup {
   const r = BackupSchema.safeParse(raw)
   if (!r.success) throw new Error(`Not a valid backup: ${r.error.issues[0]?.path.join('.')} ${r.error.issues[0]?.message}`)
   if (r.data.schema_version > SCHEMA_VERSION) throw new Error('Backup is from a newer app version')
+  if (r.data.schema_version < 2) {
+    // Before v2 there was no "ended" flag: games imported from UltiAnalytics are finished games.
+    for (const g of r.data.games) if (g.ended_at === null && g.notes.includes('[ultianalytics:')) g.ended_at = g.updated_at
+  }
   return r.data
 }
 

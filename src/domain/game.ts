@@ -5,7 +5,7 @@ export const other = (t: TeamSide): TeamSide => (t === 'us' ? 'them' : 'us')
 export const flipSide = (s: Side): Side => (s === 'O' ? 'D' : 'O')
 
 /** Events that are bookkeeping only and never change possession. */
-export const META_TYPES = new Set<GameEvent['type']>(['timeout', 'sub', 'injury', 'half', 'cap', 'note', 'throw', 'call'])
+export const META_TYPES = new Set<GameEvent['type']>(['timeout', 'sub', 'injury', 'half', 'cap', 'end', 'note', 'throw', 'call'])
 
 /** A call whose outcome turns the disc over (the call itself is the turnover event). */
 export const isTurnoverCall = (e: GameEvent) => e.type === 'call' && e.call?.outcome === 'turnover'
@@ -132,8 +132,20 @@ export interface GameState {
   target: number
   halfTarget: number
   halfReached: boolean
+  /** Game is finished: ended by hand, or the score reached the (capped) target. */
   over: boolean
+  /** Ended by hand with "End game" (game.ended_at set). */
+  ended: boolean
+  /** The score reached the target (game-to, or the capped target). The game can still be played on. */
+  reachedTarget: boolean
+  /** Winner when over; null = tie (or not over). */
   winner: TeamSide | null
+  /** 'W' | 'L' | 'T' when over, else null. */
+  result: 'W' | 'L' | 'T' | null
+  /** A cap marked during the point in progress, applied when that point ends. */
+  pendingCap: 'soft' | 'hard' | null
+  /** Caps configured for this game (a cap marker only changes the target when that cap is configured). */
+  capsConfigured: { half: boolean; soft: boolean; hard: boolean }
   capsCalled: { half: boolean; soft: boolean; hard: boolean }
   /** Point currently being played (not over), if any. */
   current: PointInfo | null
@@ -141,13 +153,22 @@ export interface GameState {
   timeouts: { 1: { us: number; them: number }; 2: { us: number; them: number } }
 }
 
-const capKind = (e: GameEvent) => (e.type === 'cap' ? (e.tags.find((t) => t === 'half' || t === 'soft' || t === 'hard') ?? null) : null)
+export type CapKind = 'half' | 'soft' | 'hard'
+export const capKind = (e: Pick<GameEvent, 'type' | 'tags'>): CapKind | null =>
+  e.type === 'cap' ? ((e.tags.find((t) => t === 'half' || t === 'soft' || t === 'hard') as CapKind | undefined) ?? null) : null
+
+/** Games stored before these fields existed have them undefined. */
+export const isEnded = (g: Pick<Game, 'ended_at'>) => g.ended_at !== null && g.ended_at !== undefined
+export const usesClock = (g: Pick<Game, 'use_clock'>) => g.use_clock === true
 
 /**
  * Derive everything about a game from its points and events (pure).
  * USAU caps: when a cap goes on during a point, finish that point, then the
  * target becomes (higher score + 1) — never above the original target. On a hard
  * cap the game ends after the current point, unless tied (then one more point).
+ * A cap marker between points is stored on the last finished point, so it applies at once.
+ * Cap markers only change targets for caps configured on the game; otherwise they are notes.
+ * "End game" (game.ended_at) closes the game at whatever score is recorded.
  */
 export function deriveGame(game: Game, allPoints: Point[], allEvents: GameEvent[]): GameState {
   const points = liveOnly(allPoints).filter((p) => p.game_id === game.id).sort((a, b) => a.idx - b.idx)
@@ -158,7 +179,11 @@ export function deriveGame(game: Game, allPoints: Point[], allEvents: GameEvent[
   let over = false
   let hardPending = false
   let softApplied = false
+  let softCalled = false
   const capsCalled = { half: false, soft: false, hard: false }
+  const caps = game.caps ?? { half: null, soft: null, hard: null }
+  const capsConfigured = { half: caps.half !== null, soft: caps.soft !== null, hard: caps.hard !== null }
+  const ended = isEnded(game)
   const score = { us: 0, them: 0 }
   const timeouts = { 1: { us: 0, them: 0 }, 2: { us: 0, them: 0 } }
   const infos: PointInfo[] = []
@@ -176,21 +201,17 @@ export function deriveGame(game: Game, allPoints: Point[], allEvents: GameEvent[
       if (e.type === 'timeout') timeouts[half][e.team]++
       if (e.type === 'half') manualHalf = true
       const k = capKind(e)
-      if (k === 'half' && !halfReached) {
-        capsCalled.half = true
-        halfCapNow = true
-      }
-      if (k === 'soft') capsCalled.soft = true
-      if (k === 'hard') {
-        capsCalled.hard = true
-        hardPending = true
-      }
+      if (k) capsCalled[k] = true
+      if (k && !capsConfigured[k]) continue
+      if (k === 'half' && !halfReached) halfCapNow = true
+      if (k === 'soft') softCalled = true
+      if (k === 'hard') hardPending = true
     }
     const hi = Math.max(after.us, after.them)
     let halfAfter = false
     if (state.over) {
       if (halfCapNow) halfTarget = Math.min(halfTarget, hi + 1)
-      if (capsCalled.soft && !softApplied) {
+      if (softCalled && !softApplied) {
         softApplied = true
         target = Math.min(target, hi + 1)
       }
@@ -214,7 +235,12 @@ export function deriveGame(game: Game, allPoints: Point[], allEvents: GameEvent[
   }
 
   const last = infos.at(-1)
-  const current = last && !last.state.over && !over ? last : null
+  // Reaching the target never locks the game (play on if that is what happened); only "End game" does.
+  const current = last && !last.state.over && !ended ? last : null
+  const reachedTarget = over
+  if (ended) over = true
+  const winner = over ? (score.us > score.them ? 'us' : score.them > score.us ? 'them' : null) : null
+  const pendingCap = current ? (hardPending ? 'hard' : softCalled && !softApplied ? 'soft' : null) : null
   const idx = (points.at(-1)?.idx ?? 0) + 1
   let start_on: Side = game.start_on
   if (last) {
@@ -229,7 +255,12 @@ export function deriveGame(game: Game, allPoints: Point[], allEvents: GameEvent[
     halfTarget,
     halfReached,
     over,
-    winner: over ? (score.us > score.them ? 'us' : score.them > score.us ? 'them' : null) : null,
+    ended,
+    reachedTarget,
+    winner,
+    result: over ? (winner === 'us' ? 'W' : winner === 'them' ? 'L' : 'T') : null,
+    pendingCap,
+    capsConfigured,
     capsCalled,
     current,
     next: { idx, ratio: ratioForPoint(game.ratio_first, idx), start_on },

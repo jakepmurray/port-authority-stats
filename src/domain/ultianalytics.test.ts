@@ -286,3 +286,14 @@ describe('team link', () => {
     expect((await err(async () => res('', 503))).message).toMatch(/HTTP 503/)
   })
 })
+
+describe('imported games are ended', () => {
+  it('marks every planned UltiAnalytics game ended at the recorded score', () => {
+    for (const g of parseUltiCsv(fx('ua-export.csv')).games) {
+      const { p, s } = stats(g)
+      expect(p.game.ended_at).toBe(1)
+      expect(s.state.ended).toBe(true)
+      expect(s.state.result).toBe(s.state.score.us > s.state.score.them ? 'W' : s.state.score.us < s.state.score.them ? 'L' : 'T')
+    }
+  })
+})

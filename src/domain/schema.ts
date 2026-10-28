@@ -87,6 +87,13 @@ export const GameSchema = z.object({
   ratio_first: Ratio,
   start_on: Side, // our side on point 1
   video: VideoSchema.default({ kind: 'none', youtube_id: null, url: null, offset_s: 0 }),
+  /**
+   * Show the game clock (video time − game start) with cap timers and warnings. Off by default:
+   * film often starts late or skips, so caps are marked by hand with "Cap went off" instead.
+   */
+  use_clock: z.boolean().default(false),
+  /** Set when the game is ended by hand ("End game"); null = open. The result comes from the recorded score. */
+  ended_at: ts.nullable().default(null),
   notes: z.string().default(''),
   ...meta,
 })
@@ -132,7 +139,8 @@ export const EventType = z.enum([
   'sub',
   'injury',
   'half',
-  'cap',
+  'cap', // tags: 'half' | 'soft' | 'hard'
+  'end', // game ended by hand (marker with the video time; the game's ended_at is the source of truth)
   'note',
   'call', // foul/violation call: team = calling team; see CallSchema
 ])
@@ -209,4 +217,5 @@ export const SyncQueueSchema = z.object({
 })
 export type SyncOp = z.infer<typeof SyncQueueSchema>
 
-export const SCHEMA_VERSION = 1
+/** 2: games.use_clock and games.ended_at, event type 'end'. */
+export const SCHEMA_VERSION = 2

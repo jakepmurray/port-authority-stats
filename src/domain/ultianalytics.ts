@@ -618,6 +618,8 @@ export function planGame(ua: UAGame, P: Mapper, opts: { team_id: string; now?: n
     id: gameId, team_id: opts.team_id, opponent: ua.opponent || 'Unknown opponent', tournament: ua.tournament, date: ua.date,
     game_to: ua.game_to ?? (hi >= 1 && score.us !== score.them ? hi : Math.max(hi + 1, 1)),
     caps: { half: null, soft: null, hard: null },
+    // A finished game in UltiAnalytics: ended here too, at the recorded score.
+    ended_at: now,
     timeouts_per_half: ua.timeouts_per_half ?? 2,
     ratio_first: 'W4',
     start_on: ua.points[0]?.line ?? 'O',

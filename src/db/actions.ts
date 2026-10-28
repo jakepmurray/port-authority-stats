@@ -1,7 +1,7 @@
 import { ratioForPoint } from '../domain/abba'
 import { makeBackup, mergeRows, parseBackup, type Backup } from '../domain/backup'
 import type { EventDraft } from '../domain/entry'
-import { deriveGame, liveOnly, missedState, outcomeOf, replayPoint } from '../domain/game'
+import { deriveGame, liveOnly, missedState, outcomeOf, replayPoint, type CapKind } from '../domain/game'
 import { normalizeTag } from '../domain/tags'
 import type { Game, GameEvent, GenderMatch, Point, Side } from '../domain/schema'
 import { planGame, type NameChoice, type UAGame } from '../domain/ultianalytics'
@@ -53,7 +53,7 @@ export class Actions {
     const { game, points, events } = await this.gameData(gameId)
     const st = deriveGame(game, points, events)
     if (st.current) throw new Error('Finish the current point first')
-    if (st.over) throw new Error('Game is over')
+    if (st.ended) throw new Error('The game has ended. Reopen it to add points.')
     const idx = st.next.idx
     return this.repo.create('points', {
       game_id: gameId,
@@ -154,13 +154,54 @@ export class Actions {
   async deleteEvent(id: string) {
     const ev = await this.repo.softDelete('events', id)
     await this.refreshPoint(ev.point_id)
+    if (ev.type === 'end') await this.setEnded(ev.game_id, null)
     return ev
   }
 
   async restoreEvent(id: string) {
     const ev = await this.repo.restore('events', id)
     await this.refreshPoint(ev.point_id)
+    if (ev.type === 'end') await this.setEnded(ev.game_id, ev.wall_time ?? Date.now())
     return ev
+  }
+
+  private async setEnded(gameId: string, at: number | null) {
+    const g = await this.repo.get('games', gameId)
+    if (g && (g.ended_at ?? null) !== at) await this.repo.update('games', gameId, { ended_at: at }, { byHand: true })
+  }
+
+  /**
+   * End the game by hand, whatever the score or clock. The final score is what is recorded
+   * (an unfinished point stays unscored). Adds an 'end' marker (with the video time) to the
+   * last point so it shows in the play-by-play; deleting or undoing that marker reopens the game.
+   */
+  async endGame(gameId: string, time: TimeStamp = { video_time: null, time_source: 'none' }) {
+    const { game, points } = await this.gameData(gameId)
+    if (game.ended_at) return game
+    const last = liveOnly(points).sort((a, b) => a.idx - b.idx).at(-1)
+    if (last) await this.addEvent(last.id, { type: 'end', team: 'us', actor_id: null, receiver_id: null, defender_id: null, tags: [] }, time)
+    return this.repo.update('games', gameId, { ended_at: Date.now() }, { byHand: true })
+  }
+
+  /** Reopen an ended game: clears ended_at and removes the end marker(s). */
+  async reopenGame(gameId: string) {
+    const { events } = await this.gameData(gameId)
+    for (const e of liveOnly(events).filter((x) => x.type === 'end')) {
+      await this.repo.softDelete('events', e.id)
+    }
+    return this.repo.update('games', gameId, { ended_at: null }, { byHand: true })
+  }
+
+  /**
+   * "Cap went off": a cap marker with the current film time, mid-point (on the point in progress)
+   * or between points (on the last finished point, so it applies from the next point).
+   */
+  async markCap(gameId: string, kind: CapKind, time: TimeStamp) {
+    const { game, points, events } = await this.gameData(gameId)
+    const st = deriveGame(game, points, events)
+    const target = st.current?.point ?? st.points.at(-1)?.point
+    if (!target) throw new Error('Start the first point before marking a cap')
+    return this.addEvent(target.id, { type: 'cap', team: 'us', actor_id: null, receiver_id: null, defender_id: null, tags: [kind] }, time)
   }
 
   async editPoint(id: string, patch: Partial<Point>) {
@@ -179,6 +220,7 @@ export class Actions {
     if (ev) {
       await this.repo.softDelete('events', ev.id, false)
       await this.refreshPoint(last.id)
+      if (ev.type === 'end') await this.setEnded(gameId, null)
       return 'event'
     }
     await this.repo.softDelete('points', last.id, false)
