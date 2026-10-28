@@ -32,7 +32,7 @@ export function gamesCsv(d: AllData) {
     return {
       game_id: g.id, date: g.date, tournament: g.tournament, opponent: g.opponent,
       score_us: s.state.score.us, score_them: s.state.score.them,
-      result: s.state.over ? (s.state.winner === 'us' ? 'W' : s.state.winner === 'them' ? 'L' : 'T') : 'in progress',
+      result: s.state.result ?? 'in progress', ended_by_hand: s.state.ended ? 'yes' : '',
       holds: s.team.holds, breaks: s.team.breaks, o_conversion: r3(s.team.o_conversion), d_break_pct: r3(s.team.d_break_pct),
       turnovers: s.team.turnovers, opp_turnovers: s.opponent.turnovers, points_missed_on_film: s.team.points_missed, subs: s.team.subs, injury_subs: s.team.injury_subs,
       turnover_tags: formatTagBreakdown(s.team.turnover_tags),

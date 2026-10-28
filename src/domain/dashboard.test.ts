@@ -69,7 +69,7 @@ describe('game and point filters', () => {
   it('O/D filter keeps only those points', () => {
     const t = totals(buildGameRows(d, F({ side: 'D' })))
     expect(t).toMatchObject({ points: 1, holds: 0, breaks: 1, dFinished: 1, oFinished: 0, scored: 1, allowed: 0 })
-    expect(t.record).toEqual({ w: 1, l: 1, other: 0 }) // whole games
+    expect(t.record).toEqual({ w: 1, l: 1, t: 0, other: 0 }) // whole games
   })
   it('tag scopes: only, without, drop points', () => {
     const only = totals(buildGameRows(d, F({ tags: ['wind'] })))

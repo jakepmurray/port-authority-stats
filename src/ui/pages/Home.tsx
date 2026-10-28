@@ -49,7 +49,7 @@ export function Home() {
               <span className="text-lg font-semibold tabular-nums">
                 {s.score.us}–{s.score.them}
               </span>
-              {s.over ? <Badge tone={s.winner === 'us' ? 'good' : 'bad'}>{s.winner === 'us' ? 'W' : s.winner === 'them' ? 'L' : 'T'}</Badge> : <Badge>{s.points.length ? 'in progress' : 'new'}</Badge>}
+              {s.result ? <Badge tone={s.result === 'W' ? 'good' : s.result === 'L' ? 'bad' : 'default'}>{s.result}</Badge> : <Badge>{s.points.length ? 'in progress' : 'new'}</Badge>}
               {g.deleted && (
                 <Btn size="sm" onClick={() => void repo.restore('games', g.id)}>Restore</Btn>
               )}

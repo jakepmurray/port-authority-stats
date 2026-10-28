@@ -10,14 +10,14 @@
  * Never paste your token into this file. It lives only in Script Properties.
  */
 
-var SCRIPT_VERSION = 1;
+var SCRIPT_VERSION = 2;
 var TOKEN_PROPERTY = 'PA_TOKEN';
 
 /** Tabs and their header rows. The app sends rows as objects keyed by these names. */
 var TABS = {
   'Players': ['id', 'number', 'name', 'gender_match', 'role', 'active', 'deleted', 'updated_at'],
   'Games': ['id', 'date', 'tournament', 'opponent', 'game_to', 'ratio_first', 'start_on', 'timeouts_per_half',
-    'cap_half', 'cap_soft', 'cap_hard', 'youtube', 'notes', 'updated_at'],
+    'cap_half', 'cap_soft', 'cap_hard', 'youtube', 'notes', 'updated_at', 'game_clock', 'ended_at'],
   'Points': ['id', 'game_id', 'opponent', 'idx', 'score_us', 'score_them', 'start_on', 'ratio', 'outcome', 'line',
     'line_end', 'subs', 'pulled_by', 'missed_on_film', 'manual_result', 'video_start', 'video_end', 'edited', 'updated_at'],
   'Events': ['id', 'game_id', 'opponent', 'point', 'seq', 'type', 'team', 'actor_number', 'actor', 'receiver_number',

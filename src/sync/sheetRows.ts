@@ -11,7 +11,7 @@ import { ytLink } from '../domain/exports'
 export const SHEET_TABS = {
   Players: ['id', 'number', 'name', 'gender_match', 'role', 'active', 'deleted', 'updated_at'],
   Games: ['id', 'date', 'tournament', 'opponent', 'game_to', 'ratio_first', 'start_on', 'timeouts_per_half',
-    'cap_half', 'cap_soft', 'cap_hard', 'youtube', 'notes', 'updated_at'],
+    'cap_half', 'cap_soft', 'cap_hard', 'youtube', 'notes', 'updated_at', 'game_clock', 'ended_at'],
   Points: ['id', 'game_id', 'opponent', 'idx', 'score_us', 'score_them', 'start_on', 'ratio', 'outcome', 'line',
     'line_end', 'subs', 'pulled_by', 'missed_on_film', 'manual_result', 'video_start', 'video_end', 'edited', 'updated_at'],
   Events: ['id', 'game_id', 'opponent', 'point', 'seq', 'type', 'team', 'actor_number', 'actor', 'receiver_number',
@@ -52,6 +52,7 @@ export function gameRow(g: Game): SheetRow {
     id: g.id, date: g.date, tournament: g.tournament, opponent: g.opponent, game_to: g.game_to, ratio_first: g.ratio_first,
     start_on: g.start_on, timeouts_per_half: g.timeouts_per_half, cap_half: g.caps.half, cap_soft: g.caps.soft, cap_hard: g.caps.hard,
     youtube: youtube(g), notes: g.notes, updated_at: iso(g.updated_at),
+    game_clock: g.use_clock === true, ended_at: g.ended_at ? iso(g.ended_at) : '',
   }
 }
 
@@ -101,7 +102,7 @@ export function gameStatsRow(g: Game, s: GameStats): SheetRow {
   return {
     id: g.id, game_id: g.id, date: g.date, tournament: g.tournament, opponent: g.opponent,
     score_us: st.score.us, score_them: st.score.them,
-    result: st.over ? (st.winner === 'us' ? 'W' : st.winner === 'them' ? 'L' : 'T') : 'in progress',
+    result: st.result ?? 'in progress',
     points: s.team.points, holds: s.team.holds, breaks: s.team.breaks, broken: s.team.broken, them_holds: s.team.them_holds,
     o_conversion: r3(s.team.o_conversion), d_break_pct: r3(s.team.d_break_pct), turnovers: s.team.turnovers,
     turnovers_per_point: r3(s.team.turnovers_per_point), ds: s.team.ds, possessions: s.team.possessions,

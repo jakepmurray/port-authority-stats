@@ -20,10 +20,11 @@ export function Season() {
     const per = games.map((g) => computeGameStats(g, data.points, data.events))
     const record = per.reduce(
       (acc, s) => {
-        if (s.state.over) acc[s.state.winner === 'us' ? 'w' : 'l']++
+        if (s.state.result) acc[s.state.result === 'W' ? 'w' : s.state.result === 'L' ? 'l' : 't']++
+        else acc.open++
         return acc
       },
-      { w: 0, l: 0 },
+      { w: 0, l: 0, t: 0, open: 0 },
     )
     return { games: games.length, record, players: [...sumPlayerStats(per.map((s) => [...s.players.values()])).values()] }
   }, [data, tournament])
@@ -32,7 +33,7 @@ export function Season() {
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-4 p-4">
       <Card
-        title={result ? `Season · ${result.games} games · ${result.record.w}–${result.record.l}` : 'Season'}
+        title={result ? `Season · ${result.games} games · ${result.record.w}–${result.record.l}${result.record.t ? `–${result.record.t}` : ''}${result.record.open ? ` (+${result.record.open} open)` : ''}` : 'Season'}
         actions={
           <Select value={tournament} onChange={(e) => setTournament(e.target.value)} aria-label="Tournament">
             <option value="">All tournaments</option>

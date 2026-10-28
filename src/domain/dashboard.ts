@@ -231,7 +231,8 @@ const ratio = (a: number, b: number) => (b > 0 ? a / b : null)
 
 export interface Totals {
   games: number
-  record: { w: number; l: number; other: number }
+  /** Finished games (ended by hand or target reached) by result; `other` = still open. */
+  record: { w: number; l: number; t: number; other: number }
   points: number
   eventPoints: number
   missedPoints: number
@@ -262,10 +263,12 @@ function throwCounts(events: GameEvent[]) {
 }
 
 export function totals(rows: GameRow[]): Totals {
-  const t: Totals = { games: rows.length, record: { w: 0, l: 0, other: 0 }, points: 0, eventPoints: 0, missedPoints: 0, scored: 0, allowed: 0, holds: 0, oFinished: 0, breaks: 0, dFinished: 0, turnovers: 0, ds: 0, completions: 0, attempts: 0 }
+  const t: Totals = { games: rows.length, record: { w: 0, l: 0, t: 0, other: 0 }, points: 0, eventPoints: 0, missedPoints: 0, scored: 0, allowed: 0, holds: 0, oFinished: 0, breaks: 0, dFinished: 0, turnovers: 0, ds: 0, completions: 0, attempts: 0 }
   for (const r of rows) {
-    if (r.full.state.over && r.full.state.winner === 'us') t.record.w++
-    else if (r.full.state.over && r.full.state.winner === 'them') t.record.l++
+    const res = r.full.state.result
+    if (res === 'W') t.record.w++
+    else if (res === 'L') t.record.l++
+    else if (res === 'T') t.record.t++
     else t.record.other++
     const s = r.stats
     t.points += s.team.points
@@ -289,6 +292,9 @@ export function totals(rows: GameRow[]): Totals {
   return t
 }
 
+/** "6–2", "6–2–1" with ties, plus "(+1 open)" for games not finished yet. */
+export const recordText = (r: Totals['record']) => `${r.w}–${r.l}${r.t ? `–${r.t}` : ''}${r.other ? ` (+${r.other} open)` : ''}`
+
 export type KpiKey = 'record' | 'diff' | 'hold' | 'break' | 'turns_pp' | 'ds_pp' | 'comp'
 
 export interface Kpi {
@@ -309,7 +315,8 @@ export interface Kpi {
 const kpiValue = (k: KpiKey, t: Totals): number | null => {
   switch (k) {
     case 'record':
-      return t.record.w + t.record.l ? t.record.w / (t.record.w + t.record.l) : null
+      // Win share: a tie counts as half a win.
+      return t.record.w + t.record.l + t.record.t ? (t.record.w + t.record.t / 2) / (t.record.w + t.record.l + t.record.t) : null
     case 'diff':
       return t.points ? t.scored - t.allowed : null
     case 'hold':
@@ -345,7 +352,7 @@ export function kpis(rows: GameRow[]): Kpi[] {
   }
   const diff = kpiValue('diff', t)
   return [
-    mk('record', 'Record', 'record', true, 'Wins–losses in finished games (whole games, not affected by point or tag filters).', `${t.record.w}–${t.record.l}${t.record.other ? ` (+${t.record.other})` : ''}`),
+    mk('record', 'Record', 'record', true, 'Wins–losses(–ties) in finished games: ended by hand or the target reached, at the recorded score. Whole games, not affected by point or tag filters.', recordText(t.record)),
     mk('diff', 'Point diff', 'int', true, 'Points we scored minus points they scored, in the filtered points.', diff === null ? '–' : `${diff > 0 ? '+' : ''}${diff}`),
     mk('hold', 'Hold %', 'pct', true, 'O-line conversion: holds ÷ finished points we started on offense.', fmtPct(kpiValue('hold', t))),
     mk('break', 'Break %', 'pct', true, 'Breaks ÷ finished points we started on defense.', fmtPct(kpiValue('break', t))),
