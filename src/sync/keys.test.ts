@@ -20,7 +20,7 @@ describe('Apps Script v4: keys and roles', () => {
   it('the old plain token keeps working as the admin key and is replaced by its hash', () => {
     const gas = loadGas()
     gas.props.set('PA_TOKEN', 'legacy-token-123')
-    expect(post(gas, { action: 'ping', token: 'legacy-token-123' })).toMatchObject({ ok: true, version: 5, who: { role: 'admin', id: 'admin' } })
+    expect(post(gas, { action: 'ping', token: 'legacy-token-123' })).toMatchObject({ ok: true, version: 6, who: { role: 'admin', id: 'admin' } })
     expect(gas.props.has('PA_TOKEN')).toBe(false)
     expect(gas.props.get('PA_ADMIN_HASH')).toBe(hex(sha256('legacy-token-123')))
     expect(post(gas, { action: 'ping', token: 'legacy-token-123' }).who.role).toBe('admin')
@@ -47,7 +47,7 @@ describe('Apps Script v4: keys and roles', () => {
   it('the Sheet menu adds, lists and revokes stat-takers, showing a key once in a dialog', () => {
     const { gas, admin } = ready()
     gas.onOpen()
-    expect(gas.ui.menu).toEqual(['Port Authority Stats', 'Add stat-taker…=menuAddStatTaker', 'List stat-takers=menuListStatTakers', 'Revoke stat-taker…=menuRevokeStatTaker', 'Set admin name…=menuSetAdminName'])
+    expect(gas.ui.menu).toEqual(['Port Authority Stats', 'Add stat-taker…=menuAddStatTaker', 'List stat-takers=menuListStatTakers', 'Revoke stat-taker…=menuRevokeStatTaker', 'Set admin name…=menuSetAdminName', 'Test USAU ranks fetch=testUsauRanks'])
     gas.ui.answers.push('Jacob')
     gas.menuSetAdminName()
     gas.ui.answers.push('Kim')

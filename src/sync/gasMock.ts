@@ -102,12 +102,32 @@ export interface Gas {
   menuListStatTakers: () => void
   menuRevokeStatTaker: () => void
   menuSetAdminName: () => void
+  testUsauRanks: () => { ok: boolean; teams?: unknown[] }
   /** The Sheet's dialogs: queue answers for prompts; alerts and the menu are recorded. */
   ui: { answers: string[]; alerts: string[]; menu: string[] }
   TABS: Record<string, string[]>
   locks: number
   /** Make the next tryLock fail (another sync holds the lock). */
   busy: boolean
+  /** UrlFetchApp: queue responses (or throw) for the next fetches; every call is recorded. */
+  http: { queue: (MockHttp | Error)[]; calls: { url: string; options: MockFetchOptions }[] }
+  /** CacheService.getScriptCache(): key → { value, seconds }. */
+  cache: Map<string, { value: string; seconds: number }>
+}
+
+export interface MockHttp {
+  code?: number
+  body: string
+  cookies?: string[]
+}
+
+export interface MockFetchOptions {
+  method?: string
+  headers?: Record<string, string>
+  payload?: string
+  contentType?: string
+  muteHttpExceptions?: boolean
+  followRedirects?: boolean
 }
 
 /** Evaluate Code.gs with mocked Google services. */
@@ -117,7 +137,31 @@ export function loadGas(ss: MockSpreadsheet | null = new MockSpreadsheet()): Gas
   let uuid = 0
   const state = { locks: 0, busy: false }
   const ui = { answers: [] as string[], alerts: [] as string[], menu: [] as string[] }
+  const http: Gas['http'] = { queue: [], calls: [] }
+  const cache: Gas['cache'] = new Map()
   const services = {
+    UrlFetchApp: {
+      fetch: (url: string, options: MockFetchOptions = {}) => {
+        http.calls.push({ url, options })
+        const next = http.queue.shift()
+        if (!next) throw new Error('Address unavailable: ' + url)
+        if (next instanceof Error) throw next
+        return {
+          getResponseCode: () => next.code ?? 200,
+          getContentText: () => next.body,
+          getAllHeaders: () => (next.cookies ? { 'Set-Cookie': next.cookies.length === 1 ? next.cookies[0] : next.cookies } : {}),
+        }
+      },
+    },
+    CacheService: {
+      getScriptCache: () => ({
+        get: (k: string) => cache.get(k)?.value ?? null,
+        put: (k: string, value: string, seconds = 600) => {
+          if (value.length > 100 * 1024) throw new Error('Argument too large: value')
+          cache.set(k, { value, seconds })
+        },
+      }),
+    },
     SpreadsheetApp: {
       getActiveSpreadsheet: () => ss,
       getUi: () => {
@@ -161,10 +205,10 @@ export function loadGas(ss: MockSpreadsheet | null = new MockSpreadsheet()): Gas
     Logger: { log: (s: unknown) => void logs.push(String(s)) },
   }
   const names = Object.keys(services)
-  const fn = new Function(...names, `${code}\nreturn { doPost, doGet, setup, rotateToken, addStatTaker, listStatTakers, revokeStatTaker, setAdminName, onOpen, menuAddStatTaker, menuListStatTakers, menuRevokeStatTaker, menuSetAdminName, TABS };`)
+  const fn = new Function(...names, `${code}\nreturn { doPost, doGet, setup, rotateToken, addStatTaker, listStatTakers, revokeStatTaker, setAdminName, onOpen, menuAddStatTaker, menuListStatTakers, menuRevokeStatTaker, menuSetAdminName, testUsauRanks, TABS };`)
   const api = fn(...names.map((n) => services[n as keyof typeof services]))
   return {
-    ss: ss as MockSpreadsheet, props, logs, ui, ...api,
+    ss: ss as MockSpreadsheet, props, logs, ui, http, cache, ...api,
     get locks() { return state.locks },
     get busy() { return state.busy },
     set busy(v: boolean) { state.busy = v },

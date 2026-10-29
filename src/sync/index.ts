@@ -3,6 +3,7 @@ import { repo } from '../db/repo'
 import { MiniStore } from '../ui/store'
 import { SyncEngine } from './engine'
 import { ackOps, discardChanges, ownership, pendingOps, pull, pullAndRetry, pushChanges, type Env, type OwnershipAction } from './remote'
+import { fetchUsauRanks, type UsauDivision, type UsauFetch } from './client'
 import { loadConfig, loadLastSynced, saveLastSynced } from './settings'
 
 const browserFetch: Env['fetchFn'] = (u, i) => fetch(u, i)
@@ -68,4 +69,11 @@ export function startSync() {
   // Bring in everyone's latest games first (needs script v4; older scripts just say so).
   if (env() && navigator.onLine) void pullNow().finally(() => void sync.notifyChange())
   else void sync.notifyChange()
+}
+
+/** "Fetch ranks": the Sheet script reads USAU's current club rankings (needs sync set up, script v6). */
+export async function fetchUsau(division: UsauDivision = 'Mixed'): Promise<UsauFetch> {
+  const cfg = loadConfig()
+  if (!cfg || !cfg.url.trim() || !cfg.token.trim()) throw new Error('Fetch ranks goes through your Sheet script, so it needs Sheet sync set up first (Settings: script URL and your key).')
+  return fetchUsauRanks(browserFetch, cfg.url.trim(), cfg.token.trim(), division)
 }

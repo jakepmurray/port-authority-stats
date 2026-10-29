@@ -23,11 +23,17 @@
  * anyone with a key may change them and the newer edit wins. Game Stats' opp_rank
  * column is refreshed from it on every push.
  *
+ * USAU ranks (version 6): action "usau_ranks" (any valid key) reads the current
+ * USA Ultimate club rankings page for the app's "Fetch ranks" button: one GET, then one
+ * "View All" POST back to the same page, at most once per division every 6 hours
+ * (the result is cached). This needs the "Connect to an external service" permission:
+ * after pasting version 6, run testUsauRanks() once in the editor to approve it.
+ *
  * Team view: every push also keeps a read-only copy of the data in the hidden
  * _Snapshot tab; GET /exec?action=snapshot returns it with no key.
  */
 
-var SCRIPT_VERSION = 5;
+var SCRIPT_VERSION = 6;
 /** Version 1-3 stored the admin token in plain text here; it is moved to a hash on first use. */
 var TOKEN_PROPERTY = 'PA_TOKEN';
 var ADMIN_HASH_PROPERTY = 'PA_ADMIN_HASH';
@@ -111,6 +117,8 @@ function handle_(req, ss, props) {
   if (!req || typeof req !== 'object') return { ok: false, error: 'bad_request', message: 'Empty request.' };
   var who = identify_(req.token, props);
   if (who.error) return { ok: false, error: who.error, message: who.message };
+  // Reads a public web page, no Sheet data: runs outside the lock so syncs are not held up.
+  if (req.action === 'usau_ranks') return usauRanks_(req);
   if (!ss) return { ok: false, error: 'no_sheet', message: 'The script must be opened from the Sheet (Extensions > Apps Script).' };
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) return { ok: false, error: 'busy', message: 'Another sync is running. Try again.' };
@@ -856,6 +864,7 @@ function onOpen() {
       .addItem('List stat-takers', 'menuListStatTakers')
       .addItem('Revoke stat-taker…', 'menuRevokeStatTaker')
       .addItem('Set admin name…', 'menuSetAdminName')
+      .addItem('Test USAU ranks fetch', 'testUsauRanks')
       .addToUi();
   } catch (err) {
     // not opened from the Sheet
@@ -912,4 +921,173 @@ function revokeStatTaker(id) {
 
 function newToken_() {
   return (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
+}
+
+// ---------- USAU rankings (version 6) ----------
+
+var USAU_URL = 'https://play.usaultimate.org/teams/events/team_rankings/?RankSet=';
+/** Divisions the app may ask for (nothing else is ever fetched). */
+var USAU_SETS = { Mixed: 'Club-Mixed', Men: 'Club-Men', Women: 'Club-Women' };
+var USAU_CACHE_SECONDS = 21600; // 6 hours
+var USAU_UA = 'Mozilla/5.0 (compatible; PortAuthorityStats/6; +https://github.com/jakepmurray/port-authority-stats)';
+
+/** { ok, teams: [{ rank, team, rating, ... }], fetched_at, cached } for one division. */
+function usauRanks_(req) {
+  var division = req.division || 'Mixed';
+  var set = USAU_SETS.hasOwnProperty(division) ? USAU_SETS[division] : null;
+  if (!set) return { ok: false, error: 'bad_division', message: 'Unknown division: ' + division + '. Use Mixed, Men or Women.' };
+  var cache = null;
+  try { cache = CacheService.getScriptCache(); } catch (err) { cache = null; }
+  var key = 'usau_ranks:' + set;
+  var hit = cache ? cache.get(key) : null;
+  if (hit) {
+    var old = parseKey_(hit);
+    if (old && old.teams) return usauReply_(old, division, set, true);
+  }
+  var got;
+  try {
+    got = fetchUsau_(set);
+  } catch (err) {
+    return { ok: false, error: 'usau_fetch', message: 'Could not read the USAU rankings page (' + String(err && err.message ? err.message : err) + ').' };
+  }
+  if (!got.teams.length) return { ok: false, error: 'usau_parse', message: 'The USAU rankings page had no ranking rows this script could read (the page may have changed).' };
+  var data = { teams: got.teams, total: got.total, fetched_at: new Date().toISOString() };
+  if (cache) {
+    try { cache.put(key, JSON.stringify(data), USAU_CACHE_SECONDS); } catch (err) { /* too big to cache: fine */ }
+  }
+  return usauReply_(data, division, set, false);
+}
+
+function usauReply_(data, division, set, cached) {
+  return {
+    ok: true, version: SCRIPT_VERSION, kind: 'usau_ranks', division: division, rank_set: set,
+    source_url: USAU_URL + set, fetched_at: data.fetched_at, cached: cached,
+    total: data.total || data.teams.length, teams: data.teams
+  };
+}
+
+/** GET the page (first 20 rows), then POST its form back as "View All" for every row. */
+function fetchUsau_(set) {
+  var url = USAU_URL + set;
+  var first = UrlFetchApp.fetch(url, { method: 'get', followRedirects: true, muteHttpExceptions: true, headers: { 'User-Agent': USAU_UA } });
+  if (first.getResponseCode() !== 200) throw new Error('HTTP ' + first.getResponseCode());
+  var html = first.getContentText();
+  var page = parseUsau_(html);
+  if (page.total && page.teams.length >= page.total) return page;
+  if (html.indexOf('lnkViewAll') < 0) return page;
+  var form = usauForm_(html);
+  form.__EVENTTARGET = 'CT_Main_0$lnkViewAll';
+  form.__EVENTARGUMENT = '';
+  var headers = { 'User-Agent': USAU_UA, 'Referer': url };
+  var cookie = cookies_(first);
+  if (cookie) headers.Cookie = cookie;
+  var all = UrlFetchApp.fetch(url, {
+    method: 'post', followRedirects: true, muteHttpExceptions: true, headers: headers,
+    contentType: 'application/x-www-form-urlencoded', payload: formEncode_(form)
+  });
+  if (all.getResponseCode() !== 200) throw new Error('HTTP ' + all.getResponseCode() + ' on View All');
+  var full = parseUsau_(all.getContentText());
+  return full.teams.length >= page.teams.length ? full : page;
+}
+
+function cookies_(res) {
+  var h = res.getAllHeaders ? res.getAllHeaders() : {};
+  var raw = h['Set-Cookie'] || h['set-cookie'] || [];
+  if (typeof raw === 'string') raw = [raw];
+  var out = [];
+  for (var i = 0; i < raw.length; i++) out.push(String(raw[i]).split(';')[0]);
+  return out.join('; ');
+}
+
+function formEncode_(form) {
+  var parts = [];
+  for (var k in form) parts.push(encodeURIComponent(k) + '=' + encodeURIComponent(form[k]));
+  return parts.join('&');
+}
+
+function attr_(tag, name) {
+  var m = new RegExp('\\s' + name + '="([^"]*)"', 'i').exec(tag);
+  return m ? decodeHtml_(m[1]) : null;
+}
+
+/** The page's ASP.NET form: hidden inputs plus the search dropdowns (left as selected). */
+function usauForm_(html) {
+  var form = {};
+  var re = /<input\b[^>]*>/gi, m;
+  while ((m = re.exec(html))) {
+    if (!/type="hidden"/i.test(m[0])) continue;
+    var name = attr_(m[0], 'name');
+    if (name) form[name] = attr_(m[0], 'value') || '';
+  }
+  var sel = /<select\b[^>]*name="([^"]+)"[^>]*>([\s\S]*?)<\/select>/gi;
+  while ((m = sel.exec(html))) {
+    var chosen = /<option\b[^>]*selected[^>]*>/i.exec(m[2]);
+    form[decodeHtml_(m[1])] = chosen ? (attr_(chosen[0], 'value') || '') : '';
+  }
+  return form;
+}
+
+function decodeHtml_(s) {
+  return String(s)
+    .replace(/&#(\d+);/g, function (_, n) { return String.fromCharCode(Number(n)); })
+    .replace(/&#x([0-9a-f]+);/gi, function (_, n) { return String.fromCharCode(parseInt(n, 16)); })
+    .replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+}
+
+function cellText_(s) {
+  return decodeHtml_(String(s).replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '');
+}
+
+/** The rankings grid (table CT_Main_0_gvList): { teams: [...], total }. */
+function parseUsau_(html) {
+  var start = html.indexOf('id="CT_Main_0_gvList"');
+  if (start < 0) return { teams: [], total: 0 };
+  var body = html.slice(start);
+  var end = body.indexOf('</table>');
+  var pagerAt = body.search(/<td colspan=/i);
+  // The pager row (one wide cell with a nested table) comes after every team row.
+  var rowsHtml = body.slice(0, pagerAt > 0 ? pagerAt : end > 0 ? end : body.length);
+  var heads = [];
+  var th = /<th\b[^>]*>([\s\S]*?)<\/th>/gi, m;
+  while ((m = th.exec(rowsHtml))) heads.push(cellText_(m[1]).toLowerCase());
+  var col = function (label, fallback) {
+    for (var i = 0; i < heads.length; i++) if (heads[i].indexOf(label) >= 0) return i;
+    return heads.length ? -1 : fallback;
+  };
+  var at = {
+    rank: col('rank', 0), team: col('team', 1), rating: col('rating', 2), gender: col('gender', 3), level: col('competition', 4),
+    city: col('city', 5), state: col('state', 6), region: col('region', 7), section: col('section', 8), wins: col('wins', 9), losses: col('losses', 10)
+  };
+  var teams = [];
+  var tr = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi;
+  while ((m = tr.exec(rowsHtml))) {
+    var cells = [];
+    var td = /<td\b[^>]*>([\s\S]*?)<\/td>/gi, c;
+    while ((c = td.exec(m[1]))) cells.push(cellText_(c[1]));
+    if (cells.length < 3) continue;
+    var rank = parseInt(cells[at.rank], 10);
+    var team = cells[at.team];
+    if (!(rank > 0) || !team) continue;
+    var num = function (i) { var v = i >= 0 ? parseFloat(cells[i]) : NaN; return isNaN(v) ? null : v; };
+    var str = function (i) { return i >= 0 && cells[i] ? cells[i] : null; };
+    teams.push({
+      rank: rank, team: team, rating: num(at.rating), gender: str(at.gender), level: str(at.level),
+      city: str(at.city), state: str(at.state), region: str(at.region), section: str(at.section), wins: num(at.wins), losses: num(at.losses)
+    });
+  }
+  var t = /Rows:\s*(?:<\/b>)?\s*\d+\s*-\s*\d+\s*of\s*(\d+)/i.exec(body);
+  return { teams: teams, total: t ? Number(t[1]) : teams.length };
+}
+
+/** Editor/menu: approve the external-request permission and check the fetch (logs the top 5). */
+function testUsauRanks() {
+  var r = usauRanks_({ division: 'Mixed' });
+  var text = r.ok
+    ? 'USAU Club Mixed: read ' + r.teams.length + ' of ' + r.total + ' teams' + (r.cached ? ' (cached)' : '') + '.\n' +
+      r.teams.slice(0, 5).map(function (t) { return t.rank + '. ' + t.team + ' (' + t.rating + ')'; }).join('\n')
+    : 'Fetch failed: ' + r.message;
+  Logger.log(text);
+  try { SpreadsheetApp.getUi().alert(text); } catch (err) { /* run from the editor */ }
+  return r;
 }

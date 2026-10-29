@@ -8,6 +8,8 @@
  * Access-Control-Allow-Origin: *, so fetch must follow redirects (the default).
  * The token travels in the body, never in the URL.
  */
+import type { UsauRank } from '../domain/opponents'
+
 export type FetchFn = (input: string, init: RequestInit) => Promise<Response>
 
 /** Who the script says this key belongs to (version 4+). */
@@ -55,6 +57,12 @@ export interface ScriptOk {
   /** pull */
   registry?: RemoteGame[]
   people?: Person[]
+  /** usau_ranks (version 6) */
+  teams?: { rank: number; team: string; rating: number | null }[]
+  total?: number
+  fetched_at?: string
+  cached?: boolean
+  source_url?: string
 }
 export interface ScriptErr {
   ok: false
@@ -89,7 +97,7 @@ export class SyncError extends Error {
  * 2: Games tab gained game_clock and ended_at. 3: team-view snapshot (GET ?action=snapshot).
  * 4: per-person keys, game owners and revs, pull, audit.
  */
-export const EXPECTED_SCRIPT_VERSION = 5
+export const EXPECTED_SCRIPT_VERSION = 6
 
 /** Build the fetch options. Exported so a test can pin the exact request format. */
 export function requestInit(body: Record<string, unknown>, token: string): RequestInit {
@@ -223,4 +231,36 @@ export async function testConnection(fetchFn: FetchFn, url: string, token: strin
     if (f.kind === 'script') return { ...base, reachable: true, token: ['bad_token', 'revoked_key', 'no_token_configured'].includes(f.error) ? false : null, summary: f.message }
     return { ...base, reachable: f.kind === 'not_json', summary: f.message }
   }
+}
+
+export type UsauDivision = 'Mixed' | 'Men' | 'Women'
+export const USAU_DIVISIONS: UsauDivision[] = ['Mixed', 'Men', 'Women']
+
+export interface UsauFetch {
+  teams: UsauRank[]
+  total: number
+  fetchedAt: string | null
+  cached: boolean
+  sourceUrl: string | null
+}
+
+/** Why "Fetch ranks" failed, in words that point to the paste fallback. */
+export function usauFetchMessage(e: unknown): string {
+  if (!(e instanceof SyncError)) return e instanceof Error ? e.message : String(e)
+  const f = e.failure
+  if (f.kind === 'script' && f.error === 'unknown_action') return 'Your Sheet script is older than version 6, so it can’t fetch ranks yet (paste Code.gs v6 and deploy a new version).'
+  if (f.kind === 'script' && /permission|authoriz/i.test(f.message)) return 'The Sheet script hasn’t been allowed to reach USAU yet: run testUsauRanks() once in the Apps Script editor and approve the prompt.'
+  if (f.kind === 'not_json') return 'The Sheet script didn’t answer properly. If you just pasted version 6, run testUsauRanks() once in the Apps Script editor to approve the new permission.'
+  if (f.kind === 'script' && (f.error === 'usau_fetch' || f.error === 'usau_parse')) return f.message.replace(/^Script error: /, '')
+  return f.message
+}
+
+/** The current USAU club rankings for a division, read by the Sheet script (version 6). */
+export async function fetchUsauRanks(fetchFn: FetchFn, url: string, token: string, division: UsauDivision = 'Mixed'): Promise<UsauFetch> {
+  const r = await callScript(fetchFn, url, token, { action: 'usau_ranks', division })
+  const teams = (r.teams ?? [])
+    .filter((t) => Number.isInteger(t.rank) && t.rank > 0 && typeof t.team === 'string' && t.team.trim())
+    .map((t) => ({ rank: t.rank, name: t.team.trim(), rating: typeof t.rating === 'number' ? t.rating : null }))
+  if (!teams.length) throw new SyncError({ kind: 'script', error: 'usau_parse', message: 'The script returned no USAU teams.' })
+  return { teams, total: r.total ?? teams.length, fetchedAt: r.fetched_at ?? null, cached: !!r.cached, sourceUrl: r.source_url ?? null }
 }
