@@ -3,13 +3,14 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { db } from '../../db/db'
 import {
   buildGameRows, byRatio, callStacks, DEFAULT_FILTER, drillEvents, filterToQuery, footnotes, gameLabel, hasCoordinates, heatmap, holdBreakTrend,
-  kpis, leaderboard, parseFilter, selectGames, tagsInUse, turnoverStacks, TURN_LABEL, UNTAGGED,
+  kpis, leaderboard, parseFilter, rankFitText as fitText, rankScatter, selectGames, tagsInUse, turnoverStacks, TURN_LABEL, UNTAGGED,
   type DashData, type DashFilter, type Drill, type HeatMode, type SourceKind, type StackRow, type TurnKind,
 } from '../../domain/dashboard'
 import type { CallKind, CallOutcome } from '../../domain/schema'
 import { DrillPanel } from '../dashboard/Drill'
 import { Filters } from '../dashboard/Filters'
-import { Heatmap, KpiCard, PlayerScatter, RatioChart, StackedBars, TrendChart, type ScatterMode } from '../dashboard/Charts'
+import { Heatmap, KpiCard, PlayerScatter, RankChart, RatioChart, StackedBars, TrendChart, type ScatterMode } from '../dashboard/Charts'
+import { rankLookup } from '../../domain/opponents'
 import { Leaderboard } from '../dashboard/Leaderboard'
 import { usePlayers } from '../hooks'
 import { useView } from '../view'
@@ -80,12 +81,13 @@ export function Dashboard() {
   const [scatter, setScatter] = useState<ScatterMode>('usage')
   const [heat, setHeat] = useState<HeatMode>('turnovers')
   const [minPoints, setMinPoints] = useState(0)
+  const [rankTrend, setRankTrend] = useState(true)
   const [drill, setDrill] = useState<Drill | null>(null)
   const drillRef = useRef<HTMLDivElement>(null)
   const players = usePlayers(true)
   const data = useLiveQuery(async (): Promise<DashData> => {
-    const [games, points, events] = await Promise.all([db.games.toArray(), db.points.toArray(), db.events.toArray()])
-    return { games, points, events }
+    const [games, points, events, opponents] = await Promise.all([db.games.toArray(), db.points.toArray(), db.events.toArray(), db.opponents.toArray()])
+    return { games, points, events, opponents }
   })
   const byId = useMemo(() => new Map((players ?? []).map((p) => [p.id, p])), [players])
 
@@ -107,6 +109,7 @@ export function Dashboard() {
     return {
       kpis: k,
       trend: holdBreakTrend(rows),
+      ranks: rankScatter(rows, rankLookup(data?.opponents ?? [])),
       turns: turnoverStacks(rows, turnTeam),
       calls: callStacks(rows, callTeam),
       ratio: byRatio(rows),
@@ -115,7 +118,7 @@ export function Dashboard() {
       heat: heatmap(rows, heat),
       notes: footnotes(rows, filter),
     }
-  }, [rows, minPoints, turnTeam, callTeam, heat, filter])
+  }, [rows, minPoints, turnTeam, callTeam, heat, filter, data])
   const drillRows = useMemo(() => (drill ? drillEvents(rows, drill) : []), [rows, drill])
 
   const open = (d: Drill) => {
@@ -218,6 +221,28 @@ export function Dashboard() {
                 <TrendChart data={v.trend} onPick={(id, side) => open({ kind: 'game', id, side })} />
               )}
               <Hint>Hold = we score after starting on O. Break = we score after starting on D. Tap a dot to see that game's goals.</Hint>
+            </Card>
+
+            <Card
+              title="Hold % and break % vs opponent rank"
+              actions={
+                <label className="flex items-center gap-1 text-xs text-slate-300">
+                  <input type="checkbox" checked={rankTrend} onChange={(e) => setRankTrend(e.target.checked)} /> Trend line
+                </label>
+              }
+            >
+              <div data-testid="rank-chart">
+                {v.ranks.points.length < 1 ? (
+                  <Empty>No opponent ranks yet. {readOnly ? 'The stat keeper adds them on the Season page.' : 'Add them on the Season page (type them, or paste the USAU rankings).'}</Empty>
+                ) : (
+                  <RankChart points={v.ranks.points} trend={rankTrend} onPick={(id, side) => open({ kind: 'game', id, side })} />
+                )}
+              </div>
+              <Hint>
+                One dot per game: left = stronger opponents. Tap a dot for that game's goals.
+                {rankTrend && v.ranks.points.length > 1 ? ` ${[fitText(v.ranks.points, 'hold'), fitText(v.ranks.points, 'break')].filter(Boolean).join('. ')}.` : ''}
+                {v.ranks.unranked ? ` ${v.ranks.unranked} game${v.ranks.unranked === 1 ? '' : 's'} without a rank left out.` : ''} Filters (tags too) apply.
+              </Hint>
             </Card>
 
             <Card

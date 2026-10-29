@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { db } from '../db/db'
 import { builder } from '../domain/fixtures'
-import { PlayerSchema } from '../domain/schema'
+import { OpponentSchema, PlayerSchema } from '../domain/schema'
 import { Dashboard } from './pages/Dashboard'
 
 beforeAll(() => {
@@ -31,12 +31,25 @@ async function seed() {
 const flush = () => act(() => new Promise((r) => setTimeout(r, 50)))
 
 beforeEach(async () => {
-  await Promise.all([db.players.clear(), db.games.clear(), db.points.clear(), db.events.clear()])
+  await Promise.all([db.players.clear(), db.games.clear(), db.points.clear(), db.events.clear(), db.opponents.clear()])
   window.location.hash = '#/dashboard'
 })
 afterEach(cleanup)
 
 describe('Dashboard', () => {
+  it('hold/break vs opponent rank: asks for ranks, then plots ranked games', async () => {
+    await seed()
+    render(<Dashboard />)
+    await screen.findByTestId('kpis')
+    await flush()
+    expect(screen.getByTestId('rank-chart').textContent).toMatch(/No opponent ranks yet.*Season page/)
+    await db.opponents.put(OpponentSchema.parse({ id: 'opp:all:alpha', team_id: 't1', name: 'alpha', rank: 8, created_at: 1, updated_at: 1 }))
+    await flush()
+    expect(screen.getByTestId('rank-chart').textContent).not.toMatch(/No opponent ranks/)
+    expect(screen.getByText(/left = stronger opponents/)).toBeTruthy()
+    expect(screen.getByRole('checkbox', { name: /Trend line/ })).toHaveProperty('checked', true)
+  })
+
   it('shows the empty state with no games', async () => {
     render(<Dashboard />)
     expect(await screen.findByTestId('dash-empty')).toBeTruthy()

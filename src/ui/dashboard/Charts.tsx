@@ -1,7 +1,7 @@
 import {
   Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, Line, LineChart, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis,
 } from 'recharts'
-import type { Kpi, LeaderRow, StackRow } from '../../domain/dashboard'
+import { rankFitLine as fitLine, type Kpi, type LeaderRow, type RankPoint, type StackRow } from '../../domain/dashboard'
 import type { Player } from '../../domain/schema'
 import { AXIS, BREAK, GRID, HOLD, pctTick, stackColor, tooltipStyle } from './palette'
 
@@ -114,6 +114,47 @@ export function RatioChart({ rows }: { rows: { label: string; hold: number | nul
           <LabelList dataKey="break" position="top" formatter={(v: unknown) => (v === null || v === undefined ? '' : pctTick(Number(v)))} fill={AXIS} fontSize={11} />
         </Bar>
       </BarChart>
+    </ResponsiveContainer>
+  )
+}
+
+/** Hold % and break % per game against the opponent's USAU rank (1 = strongest, on the left), with optional trend lines. */
+export function RankChart({ points, trend, onPick }: { points: RankPoint[]; trend: boolean; onPick: (id: string, side: 'O' | 'D') => void }) {
+  const hold = points.filter((p) => p.hold !== null).map((p) => ({ ...p, x: p.rank, y: p.hold as number, n: p.o, side: 'O' as const }))
+  const brk = points.filter((p) => p.break !== null).map((p) => ({ ...p, x: p.rank, y: p.break as number, n: p.d, side: 'D' as const }))
+  const hl = trend ? fitLine(points, 'hold') : null
+  const bl = trend ? fitLine(points, 'break') : null
+  const pick = (d: unknown) => {
+    const p = ((d as { payload?: { id: string; side: 'O' | 'D' } }).payload ?? d) as { id: string; side: 'O' | 'D' }
+    onPick(p.id, p.side)
+  }
+  return (
+    <ResponsiveContainer width="100%" height={260}>
+      <ScatterChart margin={{ top: 8, right: 16, bottom: 18, left: -10 }}>
+        <CartesianGrid stroke={GRID} />
+        <XAxis type="number" dataKey="x" name="Opponent rank" domain={[1, 'dataMax']} allowDecimals={false} tick={{ fill: AXIS, fontSize: 11 }}
+          label={{ value: 'Opponent USAU rank (1 = strongest)', position: 'insideBottom', offset: -10, fill: AXIS, fontSize: 11 }} />
+        <YAxis type="number" dataKey="y" domain={[0, 1]} ticks={[0, 0.25, 0.5, 0.75, 1]} tickFormatter={pctTick} tick={{ fill: AXIS, fontSize: 11 }} allowDataOverflow />
+        <Tooltip
+          {...tooltipStyle}
+          cursor={{ strokeDasharray: '3 3' }}
+          content={({ payload }) => {
+            const p = payload?.[0]?.payload as (typeof hold)[number] | undefined
+            if (!p || !('label' in p)) return null
+            return (
+              <div style={tooltipStyle.contentStyle} className="px-2 py-1">
+                <b>{p.label}</b> (#{p.rank})
+                <div>{p.side === 'O' ? 'Hold' : 'Break'}: {pctTick(p.y)} of {p.n} pts</div>
+              </div>
+            )
+          }}
+        />
+        <Legend wrapperStyle={{ fontSize: 12 }} />
+        <Scatter name="Hold %" data={hold} fill={HOLD} cursor="pointer" onClick={pick} />
+        <Scatter name="Break %" data={brk} fill={BREAK} shape="diamond" cursor="pointer" onClick={pick} />
+        {hl && <Scatter name="Hold trend" data={hl.line} line={{ stroke: HOLD, strokeDasharray: '5 4' }} shape={() => <g />} legendType="none" isAnimationActive={false} />}
+        {bl && <Scatter name="Break trend" data={bl.line} line={{ stroke: BREAK, strokeDasharray: '5 4' }} shape={() => <g />} legendType="none" isAnimationActive={false} />}
+      </ScatterChart>
     </ResponsiveContainer>
   )
 }
