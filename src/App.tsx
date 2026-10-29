@@ -12,6 +12,8 @@ import { Season } from './ui/pages/Season'
 import { Workspace } from './ui/pages/Workspace'
 import { Settings } from './ui/pages/Settings'
 import { SyncBadge } from './ui/SyncBadge'
+import { LockedGame } from './ui/sharing'
+import { useGameLock } from './ui/sharingHooks'
 import { TeamView } from './ui/team/TeamView'
 import { UpdatePrompt } from './ui/UpdatePrompt'
 import { startSync } from './sync'
@@ -23,6 +25,14 @@ function EditGame({ id }: { id: string }) {
   const game = useLiveQuery(() => db.games.get(id), [id])
   if (game === undefined) return <p className="p-4 text-slate-400">Loading…</p>
   return <GameSetup key={game.id} game={game} />
+}
+
+/** A game someone else owns (or nobody does) opens read-only. */
+function GameRoute({ id, edit }: { id: string; edit: boolean }) {
+  const lock = useGameLock(id)
+  if (lock.loading) return <p className="p-4 text-slate-400">Loading…</p>
+  if (lock.locked) return <LockedGame gameId={id} remote={lock.remote} />
+  return edit ? <EditGame id={id} /> : <Workspace key={id} gameId={id} />
 }
 
 export default function App() {
@@ -56,8 +66,7 @@ export default function App() {
     )
   else if (a === 'data') page = <DataPage />
   else if (a === 'settings') page = <Settings />
-  else if (a === 'game' && b && c === 'edit') page = <EditGame id={b} />
-  else if (a === 'game' && b) page = <Workspace key={b} gameId={b} />
+  else if (a === 'game' && b) page = <GameRoute key={b} id={b} edit={c === 'edit'} />
   else page = <Home />
 
   const link = (href: string, label: string, active: boolean) => (

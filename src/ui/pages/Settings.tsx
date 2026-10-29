@@ -1,5 +1,6 @@
 import { useState, useSyncExternalStore } from 'react'
-import { sync } from '../../sync'
+import { pullNow, pullState, sync } from '../../sync'
+import { loadPeople, saveWho } from '../../sync/identity'
 import { checkUrl, testConnection, type ConnectionReport } from '../../sync/client'
 import { clearConfig, loadConfig, saveConfig } from '../../sync/settings'
 import { CODE_URL, REDEPLOY_STEPS, SETUP_STEPS } from '../../sync/setupSteps'
@@ -7,6 +8,8 @@ import { PUBLISHED_TABS } from '../../sync/sheetRows'
 import { teamLink, validSrc } from '../../team/link'
 import { Badge, Btn, Card, Field, Input } from '../kit'
 import { SyncBadge } from '../SyncBadge'
+import { ConflictsCard } from '../sharing'
+import { useWho } from '../sharingHooks'
 
 const time = (t: number | null) =>
   t ? new Date(t).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : 'never'
@@ -31,8 +34,11 @@ export function Settings() {
   const [msg, setMsg] = useState<{ text: string; bad?: boolean } | null>(null)
   const dirty = url !== (saved?.url ?? '') || token !== (saved?.token ?? '') || auto !== (saved?.auto ?? true)
   const urlCheck = url.trim() ? checkUrl(url.trim()) : null
+  const who = useWho()
+  const pulling = useSyncExternalStore(pullState.subscribe, pullState.get)
 
   const save = () => {
+    if (url.trim() !== (saved?.url ?? '') || token.trim() !== (saved?.token ?? '')) saveWho(null)
     saveConfig({ url, token, auto })
     sync.reconfigured()
     setMsg({ text: 'Saved in this browser only.' })
@@ -41,7 +47,9 @@ export function Settings() {
     setBusy('test')
     setReport(null)
     try {
-      setReport(await testConnection((u, i) => fetch(u, i), url, token))
+      const r = await testConnection((u, i) => fetch(u, i), url, token)
+      if (r.who && url.trim() === (saved?.url ?? '') && token.trim() === (saved?.token ?? '')) saveWho(r.who)
+      setReport(r)
     } catch (e) {
       setReport({ url: { ok: true, note: null }, reachable: null, token: null, tabs: null, version: null, ok: false, summary: (e as Error).message })
     } finally {
@@ -60,6 +68,11 @@ export function Settings() {
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
       <Card title="Google Sheet sync" actions={<SyncBadge />}>
         <div className="flex flex-col gap-1 text-sm text-slate-300">
+          {who && (
+            <div data-testid="who">
+              Signed in with {who.role === 'admin' ? 'the admin key' : 'a stat-taker key'}: <span className="text-slate-100">{who.name}</span>
+            </div>
+          )}
           <div>
             Last synced: <span className="text-slate-100">{time(st.lastSyncedAt)}</span> · {st.pending} change{st.pending === 1 ? '' : 's'} waiting
           </div>
@@ -75,6 +88,8 @@ export function Settings() {
           </p>
         </div>
       </Card>
+
+      <ConflictsCard />
 
       <Card title="Connection">
         <form
@@ -95,7 +110,10 @@ export function Settings() {
               aria-label="Web app URL"
             />
           </Field>
-          <Field label="Token" hint="From the Apps Script Execution log after running setup. Stored only in this browser.">
+          <Field
+            label="Your key"
+            hint="Jacob: the admin key from the Apps Script Execution log (the old sync token works). Stat-takers: the key Jacob sent you. Stored only in this browser; never share it."
+          >
             <span className="flex gap-1">
               <Input
                 type={show ? 'text' : 'password'}
@@ -103,7 +121,7 @@ export function Settings() {
                 onChange={(e) => setToken(e.target.value)}
                 autoComplete="new-password"
                 spellCheck={false}
-                aria-label="Token"
+                aria-label="Key"
                 className="flex-1 font-mono"
               />
               <Btn size="sm" tone="ghost" onClick={() => setShow((v) => !v)}>
@@ -124,14 +142,22 @@ export function Settings() {
             <Btn onClick={() => void run(false)} disabled={busy !== null || !url.trim() || !token.trim()}>
               {busy === 'sync' ? 'Syncing…' : 'Sync now'}
             </Btn>
-            <Btn tone="ghost" onClick={() => void run(true)} disabled={busy !== null || !url.trim() || !token.trim()} title="Re-send every game, player and stat (first sync, or after restoring a backup)">
+            <Btn onClick={() => void pullNow()} disabled={pulling.busy || !url.trim() || !token.trim() || dirty} title="Bring in everyone’s latest games and roster (your unsent changes stay)">
+              {pulling.busy ? 'Pulling…' : 'Pull now'}
+            </Btn>
+            <Btn
+              tone="ghost"
+              onClick={() => void run(true)}
+              disabled={busy !== null || !url.trim() || !token.trim()}
+              title={who?.role === 'taker' ? 'Re-send your games and the roster' : 'Re-send every game, player and stat you can edit (first sync, after restoring a backup, or after a script update)'}
+            >
               {busy === 'full' ? 'Pushing…' : 'Push everything'}
             </Btn>
             <Btn
               tone="ghost"
               className="ml-auto"
               onClick={() => {
-                if (!confirm('Forget the URL and token in this browser?')) return
+                if (!confirm('Forget the URL and key in this browser?')) return
                 clearConfig()
                 setUrl('')
                 setToken('')
@@ -143,13 +169,18 @@ export function Settings() {
             </Btn>
           </div>
           {msg && <p className={`text-sm ${msg.bad ? 'text-rose-300' : 'text-emerald-300'}`}>{msg.text}</p>}
+          {(pulling.note || pulling.error) && (
+            <p className={`text-sm ${pulling.error ? 'text-rose-300' : 'text-emerald-300'}`} data-testid="pull-status">
+              {pulling.error ?? pulling.note}
+            </p>
+          )}
           {report && (
             <div className="rounded-lg border border-slate-800 bg-black/30 p-3 text-sm" aria-live="polite" data-testid="test-report">
               <p className={report.ok ? 'text-emerald-300' : 'text-amber-200'}>{report.summary}</p>
               <ul className="mt-1 flex flex-col gap-0.5 text-xs">
                 <Check v={report.url.ok} label={`URL looks right${report.url.note ? ` (${report.url.note})` : ''}`} />
                 <Check v={report.reachable} label="Script reachable" />
-                <Check v={report.token} label="Token accepted" />
+                <Check v={report.token} label={`Key accepted${report.who ? ` · ${report.who.role === 'admin' ? 'admin' : 'stat-taker'}: ${report.who.name}` : ''}`} />
                 <Check v={report.tabs ? true : null} label="Tabs and headers in place" />
               </ul>
               {report.tabs && (
@@ -167,6 +198,8 @@ export function Settings() {
         </form>
       </Card>
 
+      {who?.role === 'admin' && <PeopleCard />}
+
       <TeamLinkCard url={saved?.url ?? ''} />
 
       <Card title="One-time setup (your Google account, free)">
@@ -177,7 +210,7 @@ export function Settings() {
         </ol>
         <p className="mt-2 text-xs text-slate-400">
           Script: <a className="text-sky-300 underline" href={CODE_URL} target="_blank" rel="noreferrer">apps-script/Code.gs</a>. Never put
-          the token in the script, the repo or a chat; it lives in Script Properties and in this browser. “Publish to web” makes those three
+          a key in the script, the repo or a chat; it lives in Script Properties and in this browser. “Publish to web” makes those three
           tabs readable by anyone with the link.
         </p>
         <h3 className="mt-3 text-sm font-semibold text-slate-200">After a script update (keep the same URL)</h3>
@@ -208,7 +241,7 @@ export function TeamLinkCard({ url }: { url: string }) {
     <Card title="Team view link (read only)">
       <div className="flex flex-col gap-2 text-sm text-slate-300">
         <p>
-          Teammates who open this link see your games, stats and season dashboard as of your last sync, without your token and
+          Teammates who open this link see your games, stats and season dashboard as of your last sync, without any key and
           without being able to change anything. Their own data in their browser is kept separate.
         </p>
         {ok ? (
@@ -224,10 +257,31 @@ export function TeamLinkCard({ url }: { url: string }) {
           <p className="text-slate-500">Save the Web app URL above first (the script.google.com …/exec address).</p>
         )}
         <p className="text-xs text-slate-400">
-          Needs script version 3 (paste the new Code.gs and deploy a new version), then click Push everything once so every game is in
-          the team view. Anyone with the link can read the stats; only this browser, with the token, can write.
+          Needs script version 3 or newer (paste the new Code.gs and deploy a new version), then click Push everything once so every game is in
+          the team view. Anyone with the link can read the stats; only people with a key can write.
         </p>
       </div>
+    </Card>
+  )
+}
+
+/** Admin: who can edit (names only). Keys are made and revoked in the Apps Script editor. */
+function PeopleCard() {
+  const people = loadPeople()
+  return (
+    <Card title="Stat-takers">
+      <ul className="flex flex-col gap-0.5 text-sm text-slate-300" data-testid="people">
+        {people.map((p) => (
+          <li key={p.id}>
+            {p.name} <span className="text-xs text-slate-500">{p.role === 'admin' ? 'admin' : p.id}</span>
+          </li>
+        ))}
+        {!people.length && <li className="text-slate-500">Pull once to see the list.</li>}
+      </ul>
+      <p className="mt-2 text-xs text-slate-400">
+        In the Apps Script editor: addStatTaker('Name') makes a key (shown once in the Execution log; send it to them privately
+        yourself), listStatTakers() shows everyone, revokeStatTaker('id') stops a key and releases that person’s games.
+      </p>
     </Card>
   )
 }

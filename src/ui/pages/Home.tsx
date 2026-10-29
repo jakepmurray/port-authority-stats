@@ -5,6 +5,8 @@ import { repo } from '../../db/repo'
 import { computeGameStats } from '../../domain/stats'
 import { go, usePlayers } from '../hooks'
 import { Badge, Btn, Card } from '../kit'
+import { OwnerBadge, OwnerControls } from '../sharing'
+import { useConflicts, useRemote, useWho } from '../sharingHooks'
 
 export function Home() {
   const [showDeleted, setShowDeleted] = useState(false)
@@ -16,6 +18,9 @@ export function Home() {
       .map((g) => ({ g, s: computeGameStats(g, points, events).state }))
   })
   const list = (data ?? []).filter((x) => showDeleted || !x.g.deleted)
+  const who = useWho()
+  const remote = useRemote()
+  const held = new Set(useConflicts().map((c) => c.gameId))
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-4 p-4">
       {players && players.length === 0 && (
@@ -50,7 +55,14 @@ export function Home() {
                 {s.score.us}–{s.score.them}
               </span>
               {s.result ? <Badge tone={s.result === 'W' ? 'good' : s.result === 'L' ? 'bad' : 'default'}>{s.result}</Badge> : <Badge>{s.points.length ? 'in progress' : 'new'}</Badge>}
-              {g.deleted && (
+              <OwnerBadge remote={remote.get(g.id)} who={who} />
+              {held.has(g.id) && (
+                <a href="#/settings" title="Some changes were not saved to the Sheet">
+                  <Badge tone="bad">not saved</Badge>
+                </a>
+              )}
+              {!g.deleted && <OwnerControls remote={remote.get(g.id)} who={who} />}
+              {g.deleted && (!remote.get(g.id) || remote.get(g.id)!.owner_id === who?.id) && (
                 <Btn size="sm" onClick={() => void repo.restore('games', g.id)}>Restore</Btn>
               )}
             </li>

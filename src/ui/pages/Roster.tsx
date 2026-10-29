@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { actions } from '../../db/actions'
 import { repo } from '../../db/repo'
+import { normalizeName } from '../../domain/rosterImport'
 import { PlayerSchema, type Player } from '../../domain/schema'
 import { usePlayers } from '../hooks'
 import { Badge, Btn, Card, Input, Select } from '../kit'
@@ -66,6 +67,17 @@ function AddPlayer({ existing }: { existing: Player[] }) {
   const add = async () => {
     setErr(null)
     if (existing.some((p) => !p.deleted && p.number === number)) return setErr(`#${number} is already taken`)
+    // The roster is shared with other stat-takers: avoid adding the same person twice.
+    const key = normalizeName(name)
+    const twin = existing.find((p) => !p.deleted && key && normalizeName(p.name) === key)
+    if (twin && !confirm(`${twin.name} (#${twin.number}) is already on the roster. Add another player with the same name?`)) return
+    const back = existing.find((p) => p.deleted && ((key && normalizeName(p.name) === key) || p.number === number))
+    if (back && confirm(`${back.name} (#${back.number}) was deleted. Restore them instead of adding a new player?`)) {
+      await repo.restore('players', back.id)
+      setName('')
+      setNumber('')
+      return
+    }
     const team = await actions.ensureTeam()
     const probe = PlayerSchema.safeParse({ id: 'x', team_id: team.id, name: name.trim(), number, gender_match: g, created_at: 0, updated_at: 0 })
     if (!probe.success) return setErr(probe.error.issues[0].message)

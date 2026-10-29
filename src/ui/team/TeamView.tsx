@@ -159,18 +159,19 @@ function TeamGames() {
   )
 }
 
-function TeamGame({ gameId }: { gameId: string }) {
+/** A read-only game page: score, stats and play-by-play. Used by the team view and for games someone else owns. */
+export function TeamGame({ gameId, back = '#/team' }: { gameId: string; back?: string }) {
   const { game, points, events, stats, loading } = useGameData(gameId)
   const players = usePlayers(true)
   const byId = useMemo(() => new Map((players ?? []).map((p) => [p.id, p])), [players])
   if (loading) return <p className="p-4 text-slate-400">Loading…</p>
-  if (!game || game.deleted || !stats || !points || !events) return <p className="p-4 text-slate-400">Game not found in the team view.</p>
+  if (!game || game.deleted || !stats || !points || !events) return <p className="p-4 text-slate-400">Game not found.</p>
   const st = stats.state
   const film = game.video.youtube_id ? `https://youtu.be/${game.video.youtube_id}` : null
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 p-3 md:p-4" data-testid="team-game">
       <div className="flex flex-wrap items-baseline gap-3">
-        <a href="#/team" className="text-sm text-slate-400 hover:text-white">← Games</a>
+        <a href={back} className="text-sm text-slate-400 hover:text-white">← Games</a>
         <h1 className="text-xl font-bold">vs {game.opponent}</h1>
         <span className="text-sm text-slate-400">{[game.date, game.tournament].filter(Boolean).join(' · ')}</span>
         <span className="text-2xl font-semibold tabular-nums">
