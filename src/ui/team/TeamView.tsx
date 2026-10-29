@@ -95,7 +95,7 @@ export function TeamView({ route, fetchFn = browserFetch }: { route: string[]; f
         <div role="status" data-testid="team-banner" className="flex flex-wrap items-center gap-2 border-b border-amber-900/60 bg-amber-950/40 px-3 py-1.5 text-sm text-amber-100">
           <span className="font-semibold">Team view — read only</span>
           <span className="text-amber-200/80">
-            {cached ? `updated ${when(info.updatedAt)}` : src ? 'loading…' : 'no source'}
+            {cached ? `updated ${when(info.updatedAt)}` : busy ? 'loading…' : 'not loaded'}
           </span>
           {cached && !info.fullAt && <span className="text-xs text-amber-300">(some games may be missing until the stat keeper clicks Push everything)</span>}
           <span className="ml-auto flex items-center gap-2">
