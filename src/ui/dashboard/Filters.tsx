@@ -48,7 +48,6 @@ export function Filters({
   const n = activeFilterCount(filter)
   const set = (p: Partial<DashFilter>) => setFilter({ ...filter, ...p })
   const visibleGames = games.filter((g) => !filter.tournament || g.game.tournament === filter.tournament)
-  const tagOn = (t: string) => filter.tags.some((x) => x.toLowerCase() === t.toLowerCase())
 
   return (
     <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-3" aria-label="Filters" data-testid="dash-filters">
@@ -101,32 +100,50 @@ export function Filters({
             ))}
           </div>
         )}
-        <div className="flex flex-col gap-1.5">
-          <div className="flex flex-wrap items-center gap-1">
-            <span className="mr-1 text-xs text-slate-400">Tags</span>
-            {tags.map(({ tag, n: count }) => (
-              <Chip key={tag} on={tagOn(tag)} onClick={() => set({ tags: tagOn(tag) ? filter.tags.filter((x) => x.toLowerCase() !== tag.toLowerCase()) : [...filter.tags, tag] })}>
-                {tag} <span className="text-slate-500">{count}</span>
-              </Chip>
-            ))}
-            {!tags.length && <span className="text-xs text-slate-500">No tagged events yet. Tag turnovers and blocks while entering stats.</span>}
-          </div>
-          {filter.tags.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              {filter.tags.length > 1 && <Segmented label="Tag match" value={filter.tagMode} onChange={(tagMode) => set({ tagMode })} options={[['any', 'Any tag'], ['all', 'All tags']]} />}
-              <Select aria-label="Tag filter mode" value={filter.tagScope} onChange={(e) => set({ tagScope: e.target.value as DashFilter['tagScope'] })} className="py-1 text-xs">
-                <option value="only">Count only events with these tags</option>
-                <option value="without">Count only events without them</option>
-                <option value="drop_points">Leave out points that contain them</option>
-              </Select>
-            </div>
-          )}
-          <p className="text-xs text-slate-500">
-            Tags live on events (turnovers, blocks, calls). The first two modes narrow the event counts (turnovers, Ds, passes, goals, calls) and keep the
-            score, holds, breaks and points played as they are. "Leave out points" drops the whole point, so it changes holds and breaks too.
-          </p>
-        </div>
+        <TagPicker filter={filter} set={set} tags={tags} />
       </div>
     </section>
+  )
+}
+
+type TagFields = Pick<DashFilter, 'tags' | 'tagMode' | 'tagScope'>
+
+/** The tag chips and mode picker, shared by the dashboard and the stat tables (game page, season page). */
+export function TagPicker({ filter, set, tags, compact }: { filter: TagFields; set: (p: Partial<TagFields>) => void; tags: { tag: string; n: number }[]; compact?: boolean }) {
+  const tagOn = (t: string) => filter.tags.some((x) => x.toLowerCase() === t.toLowerCase())
+  // A tag in the link that isn't used in view still shows (so it can be turned off).
+  const shown = [...tags, ...filter.tags.filter((t) => !tags.some((x) => x.tag.toLowerCase() === t.toLowerCase())).map((tag) => ({ tag, n: 0 }))]
+  return (
+    <div className="flex flex-col gap-1.5" data-testid="tag-picker">
+      <div className="flex flex-wrap items-center gap-1">
+        <span className="mr-1 text-xs text-slate-400">Tags</span>
+        {shown.map(({ tag, n: count }) => (
+          <Chip key={tag} on={tagOn(tag)} onClick={() => set({ tags: tagOn(tag) ? filter.tags.filter((x) => x.toLowerCase() !== tag.toLowerCase()) : [...filter.tags, tag] })}>
+            {tag} <span className="text-slate-500">{count}</span>
+          </Chip>
+        ))}
+        {!shown.length && <span className="text-xs text-slate-500">No tagged events yet. Tag turnovers and blocks while entering stats.</span>}
+      </div>
+      {filter.tags.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          {filter.tags.length > 1 && <Segmented label="Tag match" value={filter.tagMode} onChange={(tagMode) => set({ tagMode })} options={[['any', 'Any tag'], ['all', 'All tags']]} />}
+          <Select aria-label="Tag filter mode" value={filter.tagScope} onChange={(e) => set({ tagScope: e.target.value as DashFilter['tagScope'] })} className="py-1 text-xs">
+            <option value="only">Count only events with these tags</option>
+            <option value="without">Count only events without them</option>
+            <option value="drop_points">Leave out points that contain them</option>
+          </Select>
+          {compact && (
+            <Btn size="sm" tone="ghost" onClick={() => set({ tags: [], tagMode: 'any', tagScope: 'only' })}>
+              Clear
+            </Btn>
+          )}
+        </div>
+      )}
+      <p className="text-xs text-slate-500">
+        {compact
+          ? 'E.g. pick “wind punt” and “Count only events without them” to leave those throwaways out of everyone’s numbers. “Leave out points” drops whole points (changes holds and breaks too).'
+          : 'Tags live on events (turnovers, blocks, calls). The first two modes narrow the event counts (turnovers, Ds, passes, goals, calls) and keep the score, holds, breaks and points played as they are. "Leave out points" drops the whole point, so it changes holds and breaks too.'}
+      </p>
+    </div>
   )
 }

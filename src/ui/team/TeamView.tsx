@@ -10,7 +10,7 @@ import { useGameData, usePlayers } from '../hooks'
 import { Badge, Btn, Card } from '../kit'
 import { describeEvent } from '../labels'
 import { Season } from '../pages/Season'
-import { CallsTable, PlayerStatsTable, TagBreakdownTable, TeamSummary } from '../StatsTables'
+import { GameStatsPanel } from '../GameStats'
 import { UpdatePrompt } from '../UpdatePrompt'
 import { ViewContext } from '../view'
 
@@ -184,10 +184,7 @@ export function TeamGame({ gameId, back = '#/team' }: { gameId: string; back?: s
           </a>
         )}
       </div>
-      <TeamSummary team={stats.team} opp={stats.opponent} opponent={game.opponent} />
-      <PlayerStatsTable stats={[...stats.players.values()]} byId={byId} showYards={events.some((e) => e.y !== null)} />
-      <CallsTable team={stats.team} players={[...stats.players.values()]} byId={byId} opponent={game.opponent} />
-      <TagBreakdownTable team={stats.team} opp={stats.opponent} players={[...stats.players.values()]} byId={byId} opponent={game.opponent} />
+      <GameStatsPanel game={game} points={points} events={events} byId={byId} />
       <Card title="Play-by-play">
         <ol className="flex flex-col gap-3 text-sm" data-testid="team-pbp">
           {st.points.map((pi) => (

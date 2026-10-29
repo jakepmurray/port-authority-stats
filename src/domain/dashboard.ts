@@ -1,5 +1,5 @@
 import { liveOnly, other } from './game'
-import type { Game, GameEvent, Point, Ratio, TeamSide } from './schema'
+import type { Game, GameEvent, Opponent, Point, Ratio, TeamSide } from './schema'
 import { computeGameStats, sumPlayerStats, type GameStats, type PlayerStats } from './stats'
 import { userTags } from './tags'
 
@@ -88,6 +88,8 @@ export interface DashData {
   games: Game[]
   points: Point[]
   events: GameEvent[]
+  /** Opponent ranks (for the rank chart and the games table). */
+  opponents?: Opponent[]
 }
 
 /** How a game was entered: the most common source of its events ('import' for UltiAnalytics games). */
@@ -525,3 +527,92 @@ export function footnotes(rows: GameRow[], f: DashFilter): Footnotes {
     sideNote: f.side === 'all' ? null : `Only points we started on ${f.side === 'O' ? 'offense (O-line)' : 'defense (D-line)'}. The record still uses whole games.`,
   }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Per-game table and opponent rank
+
+export interface GameTableRow {
+  id: string
+  game: Game
+  label: string
+  /** Opponent's USAU rank for that season (null = not set). */
+  rank: number | null
+  /** Whole-game score and result (filters never change these). */
+  score: { us: number; them: number }
+  result: 'W' | 'L' | 'T' | null
+  /** With the filters applied. */
+  holds: number
+  oFinished: number
+  hold: number | null
+  breaks: number
+  dFinished: number
+  brk: number | null
+  turnovers: number
+  ds: number
+  points: number
+}
+
+export function gameTable(rows: GameRow[], rankOf: (g: Game) => number | null): GameTableRow[] {
+  return rows.map((r) => {
+    const t = totals([r])
+    return {
+      id: r.game.id, game: r.game, label: r.label, rank: rankOf(r.game),
+      score: r.full.state.score, result: r.full.state.result,
+      holds: t.holds, oFinished: t.oFinished, hold: ratio(t.holds, t.oFinished),
+      breaks: t.breaks, dFinished: t.dFinished, brk: ratio(t.breaks, t.dFinished),
+      turnovers: t.turnovers, ds: t.ds, points: t.points,
+    }
+  })
+}
+
+export interface RankPoint {
+  id: string
+  label: string
+  rank: number
+  hold: number | null
+  break: number | null
+  o: number
+  d: number
+}
+
+/** Hold % and break % per game against the opponent's rank. Games without a rank are counted, not plotted. */
+export function rankScatter(rows: GameRow[], rankOf: (g: Game) => number | null): { points: RankPoint[]; unranked: number } {
+  const points: RankPoint[] = []
+  let unranked = 0
+  for (const r of holdBreakTrend(rows).map((x, i) => ({ ...x, rank: rankOf(rows[i].game) }))) {
+    if (r.rank === null) unranked++
+    else points.push({ id: r.id, label: r.label, rank: r.rank, hold: r.hold, break: r.break, o: r.o, d: r.d })
+  }
+  return { points, unranked }
+}
+
+/** Least-squares line y = intercept + slope·x; null with fewer than 2 distinct x values. */
+export function linearFit(pts: { x: number; y: number }[]): { slope: number; intercept: number; n: number } | null {
+  const n = pts.length
+  if (n < 2) return null
+  const mx = pts.reduce((s, p) => s + p.x, 0) / n
+  const my = pts.reduce((s, p) => s + p.y, 0) / n
+  const sxx = pts.reduce((s, p) => s + (p.x - mx) ** 2, 0)
+  if (sxx === 0) return null
+  const slope = pts.reduce((s, p) => s + (p.x - mx) * (p.y - my), 0) / sxx
+  return { slope, intercept: my - slope * mx, n }
+}
+
+/** Fitted line end points over the rank range, clipped to 0–100 %. */
+export function rankFitLine(points: RankPoint[], key: 'hold' | 'break') {
+  const pts = points.filter((p) => p[key] !== null).map((p) => ({ x: p.rank, y: p[key] as number }))
+  const fit = linearFit(pts)
+  if (!fit) return null
+  const xs = pts.map((p) => p.x)
+  const at = (x: number) => ({ x, y: Math.min(1, Math.max(0, fit.intercept + fit.slope * x)) })
+  return { line: [at(Math.min(...xs)), at(Math.max(...xs))], fit }
+}
+
+/** "Hold % falls 4 pts per 10 places down the rankings" style summary of a fit. */
+export function rankFitText(points: RankPoint[], key: 'hold' | 'break') {
+  const f = rankFitLine(points, key)?.fit
+  if (!f) return null
+  const per10 = Math.round(f.slope * 10 * 100)
+  return `${key === 'hold' ? 'Hold' : 'Break'} % ${per10 === 0 ? 'is flat' : `${per10 > 0 ? 'rises' : 'falls'} ${Math.abs(per10)} pts`} per 10 places down the rankings (${f.n} games)`
+}
+

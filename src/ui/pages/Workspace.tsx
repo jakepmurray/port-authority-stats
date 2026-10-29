@@ -10,7 +10,7 @@ import { EventLog } from '../EventLog'
 import { useGameData, usePref, useTeam } from '../hooks'
 import { Badge, Btn } from '../kit'
 import { PointStarter } from '../PointStarter'
-import { CallsTable, PlayerStatsTable, TagBreakdownTable, TeamSummary } from '../StatsTables'
+import { GameStatsPanel } from '../GameStats'
 import { VideoController } from '../video/controller'
 import { openPopout, useVideoStatus, type Layout } from '../video/popout'
 import { VideoPane } from '../video/VideoPane'
@@ -23,7 +23,8 @@ export function Workspace({ gameId }: { gameId: string }) {
   const [mode, setMode] = usePref<EntryMode>('mode', 'full')
   const [askTags, setAskTags] = usePref<boolean>('askTags', true)
   const { tags: tagChoices } = useTeam()
-  const [tab, setTab] = useState<'entry' | 'stats'>('entry')
+  // A shared link with a tag filter (?tags=…) opens on the stats.
+  const [tab, setTab] = useState<'entry' | 'stats'>(() => (/[?&]tags=/.test(window.location.hash) ? 'stats' : 'entry'))
   const [manualTime, setManualTime] = useState('')
   const [video] = useState(() => new VideoController(gameId))
   const [err, setErr] = useState<string | null>(null)
@@ -216,14 +217,7 @@ export function Workspace({ gameId }: { gameId: string }) {
             </div>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-2">
-              <TeamSummary team={stats.team} opp={stats.opponent} opponent={game.opponent} />
-              <CallsTable team={stats.team} players={[...stats.players.values()]} byId={new Map(players.map((p) => [p.id, p]))} opponent={game.opponent} />
-              <TagBreakdownTable team={stats.team} opp={stats.opponent} players={[...stats.players.values()]} byId={new Map(players.map((p) => [p.id, p]))} opponent={game.opponent} />
-              <PlayerStatsTable
-                stats={[...stats.players.values()]}
-                byId={new Map(players.map((p) => [p.id, p]))}
-                showYards={events.some((e) => e.y !== null)}
-              />
+              <GameStatsPanel game={game} points={points} events={events} byId={new Map(players.map((p) => [p.id, p]))} />
             </div>
           )}
         </aside>

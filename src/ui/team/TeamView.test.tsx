@@ -94,7 +94,42 @@ describe('team view (read only)', () => {
     expect(screen.getByRole('heading', { name: 'vs Alpha' })).toBeTruthy()
     expect(screen.getByTestId('team-pbp').textContent).toMatch(/Point 1/)
     expect(document.querySelectorAll('input, textarea, select').length).toBe(0)
-    expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual(['Refresh'])
+    // only view controls: refresh, and the (closed) tag filter with its share link
+    expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual(['Refresh', 'Tag filter ▾', 'Copy link'])
+  })
+
+  it('game page tag filter comes from the link and changes the numbers', async () => {
+    const { fetchFn } = liveScript()
+    window.location.hash = `#/team/game/g1?tags=wind&ts=without&team_src=${encodeURIComponent(SRC)}`
+    render(<TeamView route={['team', 'game', 'g1']} fetchFn={fetchFn} />)
+    await loaded()
+    await screen.findByTestId('team-game')
+    const turns = () => screen.getByText('Turns').parentElement!.textContent
+    expect(turns()).toBe('Turns0') // the wind throwaway is left out
+    expect(screen.getByTestId('table-filter-note').textContent).toMatch(/not tagged “wind”/)
+    act(() => screen.getByRole('button', { name: /^Clear$/ }).click())
+    await flush()
+    expect(turns()).toBe('Turns1')
+    expect(window.location.hash).toBe(`#/team/game/g1?team_src=${encodeURIComponent(SRC)}`)
+  })
+
+  it('season page: games table with opponent rank, read-only ranks, shareable tag filter', async () => {
+    const { fetchFn } = liveScript()
+    window.location.hash = `#/team/season?team_src=${encodeURIComponent(SRC)}`
+    render(<TeamView route={['team', 'season']} fetchFn={fetchFn} />)
+    await loaded()
+    const table = await screen.findByTestId('game-stats-table')
+    const alpha = within(table).getByText(/Alpha/).closest('tr')!
+    expect(alpha.textContent).toMatch(/Alpha12/) // USAU #12 in 2026
+    expect(within(table).getByText(/Bravo/).closest('tr')!.textContent).toMatch(/Bravo–/)
+    const ranks = screen.getByTestId('opponent-ranks')
+    expect(within(ranks).queryAllByRole('textbox')).toHaveLength(0)
+    expect(screen.queryByText(/Paste USAU rankings/)).toBeNull()
+    act(() => screen.getByRole('button', { name: /Tag filter/ }).click())
+    act(() => screen.getByRole('button', { name: /wind/ }).click())
+    await flush()
+    expect(window.location.hash).toBe(`#/team/season?tags=wind&team_src=${encodeURIComponent(SRC)}`)
+    expect(screen.getByTestId('table-filter-note').textContent).toMatch(/only include events tagged “wind”/)
   })
 
   it('dashboard renders from the snapshot and keeps filter links under #/team', async () => {

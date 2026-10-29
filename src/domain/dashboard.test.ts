@@ -159,3 +159,34 @@ describe('drill-down', () => {
     expect(tagsInUse(season().events).map((t) => t.tag)).toEqual(['wind', 'difficult throw', 'great D', 'receiver error'])
   })
 })
+
+describe('games table and opponent rank', () => {
+  const rankOf = (g: { opponent: string }) => (g.opponent === 'Alpha' ? 4 : null)
+
+  it('one row per game with rank, whole-game score and filtered holds/breaks', async () => {
+    const { gameTable } = await import('./dashboard')
+    const rows = gameTable(buildGameRows(season(), F()), rankOf)
+    expect(rows.map((r) => [r.label, r.rank, `${r.score.us}-${r.score.them}`, r.result, `${r.holds}/${r.oFinished}`, `${r.breaks}/${r.dFinished}`])).toEqual([
+      ['6/1 Alpha', 4, '3-1', 'W', '2/3', '1/1'],
+      ['6/8 Beta', null, '0-1', 'L', '0/1', '0/0'],
+    ])
+    // Leaving out points with "wind" drops the break, never the score.
+    const dropped = gameTable(buildGameRows(season(), F({ tags: ['wind'], tagScope: 'drop_points' })), rankOf)[0]
+    expect([dropped.score.us, dropped.breaks, dropped.dFinished, dropped.brk]).toEqual([3, 0, 0, null])
+    // "without" keeps points but not the tagged turnovers.
+    const without = gameTable(buildGameRows(season(), F({ tags: ['wind'], tagScope: 'without' })), rankOf)[0]
+    expect(without.turnovers).toBe(gameTable(buildGameRows(season(), F()), rankOf)[0].turnovers - 1)
+  })
+
+  it('scatter points by rank, unranked counted, with a least-squares trend', async () => {
+    const { linearFit, rankFitText, rankScatter } = await import('./dashboard')
+    const r = rankScatter(buildGameRows(season(), F()), rankOf)
+    expect(r.unranked).toBe(1)
+    expect(r.points).toEqual([expect.objectContaining({ id: 'g1', rank: 4, hold: 2 / 3, break: 1 })])
+    expect(linearFit([{ x: 1, y: 0.9 }, { x: 11, y: 0.5 }, { x: 21, y: 0.1 }])).toEqual({ slope: -0.04, intercept: 0.94, n: 3 })
+    expect(linearFit([{ x: 3, y: 1 }, { x: 3, y: 0 }])).toBeNull()
+    const pts = [1, 11, 21].map((rank, i) => ({ id: `g${i}`, label: '', rank, hold: 0.9 - i * 0.4, break: 0.5, o: 5, d: 5 }))
+    expect(rankFitText(pts, 'hold')).toBe('Hold % falls 40 pts per 10 places down the rankings (3 games)')
+    expect(rankFitText(pts, 'break')).toBe('Break % is flat per 10 places down the rankings (3 games)')
+  })
+})

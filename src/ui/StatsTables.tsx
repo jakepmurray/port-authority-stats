@@ -4,6 +4,7 @@ import { tagTotals, type CallBreakdown, type OpponentStats, type PlayerStats, ty
 import { CALL_KIND_LABEL, CALL_OUTCOME_LABEL } from './labels'
 import type { CallKind, CallOutcome } from '../domain/schema'
 import { pct } from './format'
+import type { GameTableRow } from '../domain/dashboard'
 
 type Col = { key: keyof PlayerStats; label: string; title: string; fmt?: (v: number | null) => string }
 const COLS: Col[] = [
@@ -204,6 +205,57 @@ export function CallsTable({ team, players, byId, opponent }: { team: TeamStats;
           ))}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+/** One row per game: opponent rank, score, holds and breaks (with the tag filter), turns, Ds. */
+export function GameStatsTable({ rows, href }: { rows: GameTableRow[]; href: (id: string) => string }) {
+  const [sort, setSort] = useState<'date' | 'rank' | 'hold' | 'brk'>('date')
+  const val = (r: GameTableRow) => (sort === 'date' ? 0 : sort === 'rank' ? (r.rank ?? 9999) : -(r[sort] ?? -1))
+  const list = sort === 'date' ? rows : [...rows].sort((a, b) => val(a) - val(b))
+  const th = (key: typeof sort | null, label: string, title: string, left = false) => (
+    <th title={title} className={`p-1 ${left ? 'text-left' : 'text-right'} ${key ? 'cursor-pointer' : ''} ${sort === key ? 'text-sky-300' : ''}`} onClick={key ? () => setSort(key) : undefined}>
+      {label}
+    </th>
+  )
+  return (
+    <div className="overflow-x-auto" data-testid="game-stats-table">
+      <table className="w-full text-xs tabular-nums">
+        <thead className="bg-slate-900 text-slate-400">
+          <tr>
+            {th('date', 'Game', 'Date and opponent (click to sort by date)', true)}
+            {th('rank', 'Rank', 'Opponent’s USAU rank that season')}
+            <th className="p-1 text-right" title="Final score (whole game)">Score</th>
+            <th className="p-1 text-left" title="Result">W/L</th>
+            <th className="p-1 text-right" title="Holds / O points finished">Holds</th>
+            {th('hold', 'Hold%', 'Hold %')}
+            <th className="p-1 text-right" title="Breaks / D points finished">Breaks</th>
+            {th('brk', 'Break%', 'Break %')}
+            <th className="p-1 text-right" title="Our turnovers">Turns</th>
+            <th className="p-1 text-right" title="Our blocks">Ds</th>
+          </tr>
+        </thead>
+        <tbody>
+          {list.map((r) => (
+            <tr key={r.id} className="border-t border-slate-800">
+              <td className="whitespace-nowrap p-1">
+                <a className="hover:text-sky-300" href={href(r.id)}>{r.label}</a>
+              </td>
+              <td className="p-1 text-right">{r.rank ?? '–'}</td>
+              <td className="p-1 text-right">{r.score.us}–{r.score.them}</td>
+              <td className="p-1">{r.result ?? '…'}</td>
+              <td className="p-1 text-right">{r.holds}/{r.oFinished}</td>
+              <td className="p-1 text-right">{pct(r.hold)}</td>
+              <td className="p-1 text-right">{r.breaks}/{r.dFinished}</td>
+              <td className="p-1 text-right">{pct(r.brk)}</td>
+              <td className="p-1 text-right">{r.turnovers}</td>
+              <td className="p-1 text-right">{r.ds}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {!rows.length && <p className="p-2 text-xs text-slate-500">No games.</p>}
     </div>
   )
 }
