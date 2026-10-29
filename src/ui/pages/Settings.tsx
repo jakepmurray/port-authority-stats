@@ -4,6 +4,7 @@ import { checkUrl, testConnection, type ConnectionReport } from '../../sync/clie
 import { clearConfig, loadConfig, saveConfig } from '../../sync/settings'
 import { CODE_URL, REDEPLOY_STEPS, SETUP_STEPS } from '../../sync/setupSteps'
 import { PUBLISHED_TABS } from '../../sync/sheetRows'
+import { teamLink, validSrc } from '../../team/link'
 import { Badge, Btn, Card, Field, Input } from '../kit'
 import { SyncBadge } from '../SyncBadge'
 
@@ -166,6 +167,8 @@ export function Settings() {
         </form>
       </Card>
 
+      <TeamLinkCard url={saved?.url ?? ''} />
+
       <Card title="One-time setup (your Google account, free)">
         <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-sm text-slate-300">
           {SETUP_STEPS.map((s, i) => (
@@ -185,5 +188,46 @@ export function Settings() {
         </ol>
       </Card>
     </div>
+  )
+}
+
+/** The read-only team view link for teammates: the web app URL only, never the token. */
+export function TeamLinkCard({ url }: { url: string }) {
+  const [note, setNote] = useState<string | null>(null)
+  const ok = !!url.trim() && validSrc(url.trim())
+  const link = ok ? teamLink(window.location.origin + window.location.pathname, url) : ''
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(link)
+      setNote('Copied. Send it to your teammates.')
+    } catch {
+      setNote('Could not copy automatically; select the link above and copy it.')
+    }
+  }
+  return (
+    <Card title="Team view link (read only)">
+      <div className="flex flex-col gap-2 text-sm text-slate-300">
+        <p>
+          Teammates who open this link see your games, stats and season dashboard as of your last sync, without your token and
+          without being able to change anything. Their own data in their browser is kept separate.
+        </p>
+        {ok ? (
+          <>
+            <Input readOnly value={link} aria-label="Team view link" onFocus={(e) => e.target.select()} className="font-mono text-xs" />
+            <div className="flex flex-wrap items-center gap-2">
+              <Btn tone="primary" onClick={() => void copy()}>Copy team view link</Btn>
+              <a className="text-xs text-sky-300 underline" href={link} target="_blank" rel="noreferrer">Open it</a>
+              {note && <span className="text-xs text-emerald-300">{note}</span>}
+            </div>
+          </>
+        ) : (
+          <p className="text-slate-500">Save the Web app URL above first (the script.google.com …/exec address).</p>
+        )}
+        <p className="text-xs text-slate-400">
+          Needs script version 3 (paste the new Code.gs and deploy a new version), then click Push everything once so every game is in
+          the team view. Anyone with the link can read the stats; only this browser, with the token, can write.
+        </p>
+      </div>
+    </Card>
   )
 }

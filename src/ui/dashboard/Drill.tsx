@@ -4,11 +4,13 @@ import type { Player } from '../../domain/schema'
 import { userTags } from '../../domain/tags'
 import { Badge, Btn, Card } from '../kit'
 import { describeEvent } from '../labels'
+import { useView } from '../view'
 
 const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`
 
 /** The events behind a chart element, with links to the game and the moment on video. */
 export function DrillPanel({ title, rows, byId, onClose, onFilterTag }: { title: string; rows: DrillRow[]; byId: Map<string, Player>; onClose: () => void; onFilterTag?: () => void }) {
+  const { base } = useView()
   const shown = rows.slice(0, 200)
   return (
     <Card
@@ -28,7 +30,7 @@ export function DrillPanel({ title, rows, byId, onClose, onFilterTag }: { title:
             const link = e.source !== 'import' ? ytLink(g, e.video_time) : ''
             return (
               <li key={e.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1.5">
-                <a className="text-xs text-sky-300 underline" href={`#/game/${g.id}`} title={g.tournament}>
+                <a className="text-xs text-sky-300 underline" href={`#/${base}game/${g.id}`} title={g.tournament}>
                   {shortDate(g.date) ? `${shortDate(g.date)} ` : ''}vs {g.opponent}
                 </a>
                 {p && <span className="text-xs text-slate-500">pt {p.idx} · {p.start_on} · {p.score_us}–{p.score_them}</span>}

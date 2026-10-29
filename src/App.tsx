@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { lazy, Suspense, useEffect } from 'react'
-import { db } from './db/db'
+import { db, TEAM_MODE } from './db/db'
 import { actions } from './db/actions'
 import { useRoute } from './ui/hooks'
 import { DataPage } from './ui/pages/DataPage'
@@ -12,6 +12,7 @@ import { Season } from './ui/pages/Season'
 import { Workspace } from './ui/pages/Workspace'
 import { Settings } from './ui/pages/Settings'
 import { SyncBadge } from './ui/SyncBadge'
+import { TeamView } from './ui/team/TeamView'
 import { UpdatePrompt } from './ui/UpdatePrompt'
 import { startSync } from './sync'
 
@@ -26,11 +27,20 @@ function EditGame({ id }: { id: string }) {
 
 export default function App() {
   const route = useRoute()
+  const team = route[0] === 'team'
   useEffect(() => {
+    if (TEAM_MODE) return // read-only copy: no local team row, no sync
     void actions.ensureTeam()
     startSync()
   }, [])
+  // The database is picked at page load (team view gets its own read-only copy), so
+  // moving between the team view and the normal app reloads the page.
+  useEffect(() => {
+    if (team !== TEAM_MODE) window.location.reload()
+  }, [team])
 
+  if (team !== TEAM_MODE) return <p className="p-4 text-slate-400">Loading…</p>
+  if (team) return <TeamView route={route} />
   if (route[0] === 'popout' && route[1]) return <Popout gameId={route[1]} />
 
   const [a, b, c] = route

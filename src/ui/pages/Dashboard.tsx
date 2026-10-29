@@ -12,6 +12,7 @@ import { Filters } from '../dashboard/Filters'
 import { Heatmap, KpiCard, PlayerScatter, RatioChart, StackedBars, TrendChart, type ScatterMode } from '../dashboard/Charts'
 import { Leaderboard } from '../dashboard/Leaderboard'
 import { usePlayers } from '../hooks'
+import { useView } from '../view'
 import { Btn, Card } from '../kit'
 import { CALL_KIND_LABEL, CALL_OUTCOME_LABEL } from '../labels'
 
@@ -19,6 +20,7 @@ const readHash = () => parseFilter(window.location.hash.split('?')[1] ?? '')
 
 /** Filters live in the hash ("#/dashboard?tags=wind"), so a view can be bookmarked or shared. */
 function useHashFilter(): [DashFilter, (f: DashFilter) => void] {
+  const { base, src } = useView()
   const [f, setF] = useState<DashFilter>(readHash)
   useEffect(() => {
     const on = () => setF(readHash())
@@ -27,8 +29,8 @@ function useHashFilter(): [DashFilter, (f: DashFilter) => void] {
   }, [])
   const set = (nf: DashFilter) => {
     setF(nf)
-    const q = filterToQuery(nf)
-    history.replaceState(null, '', `#/dashboard${q ? `?${q}` : ''}`)
+    const q = [filterToQuery(nf), src ? `team_src=${encodeURIComponent(src)}` : ''].filter(Boolean).join('&')
+    history.replaceState(null, '', `#/${base}dashboard${q ? `?${q}` : ''}`)
   }
   return [f, set]
 }
@@ -71,6 +73,7 @@ function Skeleton() {
 }
 
 export function Dashboard() {
+  const { readOnly } = useView()
   const [filter, setFilter] = useHashFilter()
   const [turnTeam, setTurnTeam] = useState<'us' | 'them'>('us')
   const [callTeam, setCallTeam] = useState<'us' | 'them'>('us')
@@ -126,11 +129,17 @@ export function Dashboard() {
     return (
       <div className="mx-auto flex max-w-xl flex-col items-center gap-3 p-8 text-center" data-testid="dash-empty">
         <h1 className="text-xl font-bold">Dashboard</h1>
-        <p className="text-slate-400">No games yet. Track a game (live or from film), or import past games, and the season stats show up here.</p>
-        <div className="flex gap-2">
-          <a href="#/new" className="rounded-lg bg-sky-600 px-3 py-1.5 text-sm text-white">New game</a>
-          <a href="#/data" className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm">Import games</a>
-        </div>
+        {readOnly ? (
+          <p className="text-slate-400">No games in the team view yet.</p>
+        ) : (
+          <>
+            <p className="text-slate-400">No games yet. Track a game (live or from film), or import past games, and the season stats show up here.</p>
+            <div className="flex gap-2">
+              <a href="#/new" className="rounded-lg bg-sky-600 px-3 py-1.5 text-sm text-white">New game</a>
+              <a href="#/data" className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm">Import games</a>
+            </div>
+          </>
+        )}
       </div>
     )
 

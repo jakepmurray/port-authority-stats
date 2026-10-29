@@ -1,4 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie'
+import { isTeamHash } from '../team/link'
 import type { Correction, Game, GameEvent, Player, Point, SyncOp, Team } from '../domain/schema'
 
 export class StatsDB extends Dexie {
@@ -43,4 +44,39 @@ export class StatsDB extends Dexie {
   }
 }
 
-export const db = new StatsDB()
+/** The team view's own database: a read-only copy of the writer's snapshot, never mixed with local data. */
+export const TEAM_DB_NAME = 'port-authority-stats-team-view'
+
+export class ReadOnlyError extends Error {
+  constructor() {
+    super('Team view is read only')
+    this.name = 'ReadOnlyError'
+  }
+}
+
+/**
+ * Block every write through this Dexie instance (schema upgrades excepted). The team
+ * view's pages read through it; only refreshTeamView writes, via its own instance.
+ */
+export function readOnly<T extends StatsDB>(d: T): T {
+  d.use({
+    stack: 'dbcore',
+    name: 'readOnly',
+    create: (down) => ({
+      ...down,
+      table: (name) => {
+        const t = down.table(name)
+        return {
+          ...t,
+          mutate: (req) => ((req.trans as unknown as IDBTransaction).mode === 'versionchange' ? t.mutate(req) : Promise.reject(new ReadOnlyError())),
+        }
+      },
+    }),
+  })
+  return d
+}
+
+/** Opened in team view (#/team…)? Decided once at load; switching modes reloads the page. */
+export const TEAM_MODE = typeof window !== 'undefined' && isTeamHash(window.location.hash)
+
+export const db = TEAM_MODE ? readOnly(new StatsDB(TEAM_DB_NAME)) : new StatsDB()
