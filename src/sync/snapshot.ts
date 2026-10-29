@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { EventSchema, GameSchema, PlayerSchema, PointSchema, TeamSchema, type Game, type GameEvent, type Player, type Point, type Team } from '../domain/schema'
+import { EventSchema, GameSchema, OpponentSchema, PlayerSchema, PointSchema, TeamSchema, type Game, type GameEvent, type Opponent, type Player, type Point, type Team } from '../domain/schema'
 
 /**
  * The read-only team-view snapshot. The writer's app sends it with every push; the
@@ -17,6 +17,8 @@ export interface SnapshotGame {
 export interface SnapshotBase {
   teams: Team[]
   players: Player[]
+  /** Opponent ranks (script v5 keeps them; older scripts drop them). */
+  opponents?: Opponent[]
 }
 export interface SnapshotPush {
   /** Replace the whole stored snapshot (Push everything). */
@@ -27,8 +29,8 @@ export interface SnapshotPush {
   delete: string[]
 }
 
-export function snapshotBase(teams: Team[], players: Player[]): SnapshotBase {
-  return { teams: teams.filter((t) => !t.deleted), players: [...players] }
+export function snapshotBase(teams: Team[], players: Player[], opponents: Opponent[] = []): SnapshotBase {
+  return { teams: teams.filter((t) => !t.deleted), players: [...players], opponents: [...opponents] }
 }
 
 /** One game's live rows: deleted points, and events of deleted points, are left out. */
@@ -49,6 +51,7 @@ export interface TeamSnapshot {
   fullAt: number | null
   teams: Team[]
   players: Player[]
+  opponents: Opponent[]
   games: Game[]
   points: Point[]
   events: GameEvent[]
@@ -64,6 +67,7 @@ const Reply = z.object({
   full_at: z.string().nullish(),
   teams: z.array(z.unknown()).default([]),
   players: z.array(z.unknown()).default([]),
+  opponents: z.array(z.unknown()).default([]),
   games: z.array(z.unknown()).default([]),
   points: z.array(z.unknown()).default([]),
   events: z.array(z.unknown()).default([]),
@@ -93,6 +97,7 @@ export function parseSnapshot(raw: unknown): TeamSnapshot {
     fullAt: ms(r.data.full_at),
     teams: rows(TeamSchema, r.data.teams),
     players: rows(PlayerSchema, r.data.players),
+    opponents: rows(OpponentSchema, r.data.opponents),
     games,
     points: rows(PointSchema, r.data.points).filter((p) => ids.has(p.game_id) && !p.deleted),
     events: rows(EventSchema, r.data.events).filter((e) => ids.has(e.game_id) && !e.deleted),

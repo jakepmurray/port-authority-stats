@@ -66,8 +66,9 @@ export async function storeSnapshot(snap: TeamSnapshot, name = TEAM_DB_NAME) {
   if (name === new StatsDB().name) throw new Error('Refusing to write a team snapshot into the main database')
   const w = new StatsDB(name)
   try {
-    await w.transaction('rw', [w.teams, w.players, w.games, w.points, w.events], async () => {
-      await Promise.all([w.teams.clear(), w.players.clear(), w.games.clear(), w.points.clear(), w.events.clear()])
+    await w.transaction('rw', [w.teams, w.players, w.games, w.points, w.events, w.opponents], async () => {
+      await Promise.all([w.teams.clear(), w.players.clear(), w.games.clear(), w.points.clear(), w.events.clear(), w.opponents.clear()])
+      await w.opponents.bulkPut(snap.opponents)
       await w.teams.bulkPut(snap.teams)
       await w.players.bulkPut(snap.players)
       await w.games.bulkPut(snap.games)

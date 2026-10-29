@@ -1,6 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie'
 import { isTeamHash } from '../team/link'
-import type { Correction, Game, GameEvent, Player, Point, SyncOp, Team } from '../domain/schema'
+import type { Correction, Game, GameEvent, Opponent, Player, Point, SyncOp, Team } from '../domain/schema'
 import type { RemoteGame } from '../sync/client'
 
 export class StatsDB extends Dexie {
@@ -9,6 +9,8 @@ export class StatsDB extends Dexie {
   games!: EntityTable<Game, 'id'>
   points!: EntityTable<Point, 'id'>
   events!: EntityTable<GameEvent, 'id'>
+  /** Opponent USAU ranks (shared team data). */
+  opponents!: EntityTable<Opponent, 'id'>
   corrections!: EntityTable<Correction, 'id'>
   syncQueue!: EntityTable<SyncOp, 'op_id'>
   /** Owner and rev of each game as the script last reported them (never edited by hand, never synced). */
@@ -46,6 +48,8 @@ export class StatsDB extends Dexie {
       })
     // v3: shared editing (script v4): who owns each game, and its rev.
     this.version(3).stores({ remote: 'game_id, owner_id' })
+    // v4: opponent ranks (script v5).
+    this.version(4).stores({ opponents: 'id, team_id' })
   }
 }
 

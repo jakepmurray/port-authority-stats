@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { EventSchema, GameSchema, PlayerSchema, PointSchema, SCHEMA_VERSION, TeamSchema } from './schema'
+import { EventSchema, GameSchema, OpponentSchema, PlayerSchema, PointSchema, SCHEMA_VERSION, TeamSchema } from './schema'
 
 export const BackupSchema = z.object({
   app: z.literal('port-authority-stats'),
@@ -10,12 +10,14 @@ export const BackupSchema = z.object({
   games: z.array(GameSchema),
   points: z.array(PointSchema),
   events: z.array(EventSchema),
+  /** Schema 3+; older backups have none. */
+  opponents: z.array(OpponentSchema).default([]),
 })
 export type Backup = z.infer<typeof BackupSchema>
-export type BackupTables = Omit<Backup, 'app' | 'schema_version' | 'exported_at'>
+export type BackupTables = Omit<Backup, 'app' | 'schema_version' | 'exported_at' | 'opponents'> & { opponents?: Backup['opponents'] }
 
 export function makeBackup(t: BackupTables, exportedAt = Date.now()): Backup {
-  return { app: 'port-authority-stats', schema_version: SCHEMA_VERSION, exported_at: exportedAt, ...t }
+  return { app: 'port-authority-stats', schema_version: SCHEMA_VERSION, exported_at: exportedAt, ...t, opponents: t.opponents ?? [] }
 }
 
 export function parseBackup(json: string): Backup {

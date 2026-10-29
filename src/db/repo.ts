@@ -3,20 +3,22 @@ import { fresh, newId, now } from '../domain/ids'
 import {
   EventSchema,
   GameSchema,
+  OpponentSchema,
   PlayerSchema,
   PointSchema,
   TeamSchema,
   type GameEvent,
   type Game,
+  type Opponent,
   type Player,
   type Point,
   type Team,
 } from '../domain/schema'
 import { db as defaultDb, type StatsDB } from './db'
 
-export type TableName = 'teams' | 'players' | 'games' | 'points' | 'events'
+export type TableName = 'teams' | 'players' | 'games' | 'points' | 'events' | 'opponents'
 
-type RowOf = { teams: Team; players: Player; games: Game; points: Point; events: GameEvent }
+type RowOf = { teams: Team; players: Player; games: Game; points: Point; events: GameEvent; opponents: Opponent }
 
 const schemas = {
   teams: TeamSchema,
@@ -24,6 +26,7 @@ const schemas = {
   games: GameSchema,
   points: PointSchema,
   events: EventSchema,
+  opponents: OpponentSchema,
 } as const
 
 type Schemas = typeof schemas

@@ -39,6 +39,27 @@ export const TeamSchema = z.object({
 })
 export type Team = z.infer<typeof TeamSchema>
 
+/**
+ * An opponent's USAU ranking. Shared team data (any stat-taker may edit it; the newer
+ * updated_at wins). `name` is the opponent as written on our games; `season` is a year
+ * ("2026") or '' for a rank that applies to every season. The id is derived from both,
+ * so two devices entering the same opponent and season write the same record.
+ */
+export const OpponentSchema = z.object({
+  id,
+  team_id: id,
+  name: z.string().min(1),
+  season: z.string().regex(/^(\d{4})?$/, 'Season is a year like 2026, or blank').default(''),
+  /** End-of-season USAU rank (1 = best); null = unranked / not set. */
+  rank: z.number().int().positive().nullable().default(null),
+  /** The USAU team name it was matched to, when filled from a pasted rankings page. */
+  usau_name: z.string().default(''),
+  /** Who last changed it (the Sheet sync stamps this too). */
+  edited_by: z.string().default(''),
+  ...meta,
+})
+export type Opponent = z.infer<typeof OpponentSchema>
+
 export const PlayerRole = z.enum(['handler', 'cutter', 'hybrid'])
 export type PlayerRole = z.infer<typeof PlayerRole>
 
@@ -209,7 +230,7 @@ export type Correction = z.infer<typeof CorrectionSchema>
 
 export const SyncQueueSchema = z.object({
   op_id: id,
-  table: z.enum(['teams', 'players', 'games', 'points', 'events']),
+  table: z.enum(['teams', 'players', 'games', 'points', 'events', 'opponents']),
   row_id: id,
   payload: z.unknown(),
   attempts: z.number().int().nonnegative().default(0),
@@ -217,5 +238,5 @@ export const SyncQueueSchema = z.object({
 })
 export type SyncOp = z.infer<typeof SyncQueueSchema>
 
-/** 2: games.use_clock and games.ended_at, event type 'end'. */
-export const SCHEMA_VERSION = 2
+/** 2: games.use_clock and games.ended_at, event type 'end'. 3: opponents (USAU ranks). */
+export const SCHEMA_VERSION = 3

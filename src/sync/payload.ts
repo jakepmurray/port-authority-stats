@@ -1,5 +1,5 @@
-import { SCHEMA_VERSION, type Game, type GameEvent, type Player, type Point, type SyncOp, type Team } from '../domain/schema'
-import { gameRow, gameSnapshot, playerRow, type SheetRow } from './sheetRows'
+import { SCHEMA_VERSION, type Game, type GameEvent, type Opponent, type Player, type Point, type SyncOp, type Team } from '../domain/schema'
+import { gameRow, gameSnapshot, opponentRow, playerRow, type SheetRow } from './sheetRows'
 import { snapshotBase, snapshotGame, type SnapshotPush } from './snapshot'
 
 export interface SyncData {
@@ -8,6 +8,7 @@ export interface SyncData {
   games: Game[]
   points: Point[]
   events: GameEvent[]
+  opponents?: Opponent[]
 }
 
 export interface PushBody {
@@ -16,6 +17,8 @@ export interface PushBody {
   upsert: {
     Players?: { rows: SheetRow[]; delete: string[] }
     Games?: { rows: SheetRow[]; delete: string[] }
+    /** Script v5: opponent ranks, shared, newer copy wins. */
+    Opponents?: { rows: SheetRow[]; delete: string[] }
   }
   replace: { game_ids: string[]; tabs: Record<'Points' | 'Events' | 'Player Stats' | 'Game Stats', SheetRow[]> }
   /** Team-view snapshot of the same changes (script v3+; older scripts ignore it). */
@@ -61,13 +64,17 @@ export function buildPush(data: SyncData, ops: Pick<SyncOp, 'table' | 'row_id' |
   const gamesById = new Map(data.games.map((g) => [g.id, g]))
   const pointGame = new Map(data.points.map((p) => [p.id, p.game_id]))
   const touchedPlayers = new Set<string>()
+  const touchedOpps = new Set<string>()
+  const opponents = data.opponents ?? []
   const touchedGames = new Set<string>()
   for (const op of ops) {
     if (op.table === 'players') touchedPlayers.add(op.row_id)
+    if (op.table === 'opponents') touchedOpps.add(op.row_id)
     const gid = opGame(op, pointGame)
     if (gid) touchedGames.add(gid)
   }
   if (full) data.players.forEach((p) => touchedPlayers.add(p.id))
+  if (full) opponents.forEach((o) => touchedOpps.add(o.id))
   // A player change refreshes every game's stats (names appear there), but only games this device may write.
   if (full || touchedPlayers.size) data.games.forEach((g) => canWrite(g.id) && touchedGames.add(g.id))
 
@@ -84,6 +91,13 @@ export function buildPush(data: SyncData, ops: Pick<SyncOp, 'table' | 'row_id' |
       delete: [...touchedPlayers].filter((id) => !byId.get(id)),
     }
   }
+  if (touchedOpps.size) {
+    const byOpp = new Map(opponents.map((o) => [o.id, o]))
+    body.upsert.Opponents = {
+      rows: [...touchedOpps].map((id) => byOpp.get(id)).filter((o): o is Opponent => !!o).map(opponentRow),
+      delete: [],
+    }
+  }
   if (touchedGames.size) {
     const ids = [...touchedGames].sort()
     body.upsert.Games = {
@@ -94,16 +108,16 @@ export function buildPush(data: SyncData, ops: Pick<SyncOp, 'table' | 'row_id' |
     for (const id of ids) {
       const g = gamesById.get(id)
       if (!g || g.deleted) continue // deleted game: its rows are removed, nothing added
-      const snap = gameSnapshot(g, data.points, data.events, byId)
+      const snap = gameSnapshot(g, data.points, data.events, byId, opponents)
       for (const k of Object.keys(snap) as (keyof typeof snap)[]) body.replace.tabs[k].push(...snap[k])
     }
   }
-  if (full || touchedPlayers.size || touchedGames.size) {
+  if (full || touchedPlayers.size || touchedGames.size || touchedOpps.size) {
     const ids = [...touchedGames].sort()
     const live = ids.map((id) => gamesById.get(id)).filter((g): g is Game => !!g && !g.deleted)
     body.snapshot = {
       full,
-      base: snapshotBase(data.teams ?? [], data.players),
+      base: snapshotBase(data.teams ?? [], data.players, opponents),
       games: live.map((g) => snapshotGame(g, data.points, data.events)),
       delete: ids.filter((id) => !gamesById.get(id) || gamesById.get(id)!.deleted),
     }
@@ -117,4 +131,4 @@ export function buildPush(data: SyncData, ops: Pick<SyncOp, 'table' | 'row_id' |
 }
 
 /** Nothing to send (e.g. only team settings changed; the snapshot picks those up with the next push). */
-export const isEmptyPush = (b: PushBody) => !b.upsert.Players && !b.upsert.Games && b.replace.game_ids.length === 0 && !b.snapshot
+export const isEmptyPush = (b: PushBody) => !b.upsert.Players && !b.upsert.Games && !b.upsert.Opponents && b.replace.game_ids.length === 0 && !b.snapshot

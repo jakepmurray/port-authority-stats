@@ -226,3 +226,54 @@ describe('two devices, one script', () => {
     expect(await k.db.syncQueue.count()).toBe(1) // kept locally, nothing lost
   })
 })
+
+describe('opponent ranks are shared team data', () => {
+  it("a stat-taker's rank edit reaches the admin, the Sheet and the team view; the newer edit wins", async () => {
+    const gas = loadGas()
+    gas.setup()
+    const adminKey = gas.logs.at(-1)!
+    gas.setAdminName('Jacob')
+    const kim = addTaker(gas, 'Kim')
+    const jacob = device(gas, adminKey)
+    await jacob.actions.ensureTeam()
+    const team = (await jacob.db.teams.toArray())[0]
+    const ava = await jacob.repo.create('players', { team_id: team.id, name: 'Ava', number: '7', gender_match: 'W' })
+    const g = await jacob.actions.createGame({ opponent: 'AMP', date: '2026-07-01', ratio_first: 'W4', start_on: 'O' })
+    const p = await jacob.actions.startPoint(g.id, { line: [ava.id] })
+    await jacob.actions.addEvent(p.id, ev('catch', ava.id, ava.id), T)
+    await jacob.actions.setRanks([{ name: 'AMP', season: '2026', rank: 9, usau_name: 'AMP' }], 'Jacob')
+    await jacob.push(true)
+    const gameStats = () => {
+      const s = gas.ss.getSheetByName('Game Stats')!
+      return s.cells[1][s.cells[0].indexOf('opp_rank')]
+    }
+    expect(gameStats()).toBe(9)
+
+    // Kim (stat-taker) doesn't own the game but can fix the rank.
+    const k = device(gas, kim.key)
+    await k.actions.ensureTeam()
+    await k.pull()
+    expect((await k.db.opponents.toArray()).map((o) => [o.name, o.rank])).toEqual([['AMP', 9]])
+    await new Promise((r) => setTimeout(r, 5))
+    await k.actions.setRanks([{ name: 'amp', season: '2026', rank: 5 }], 'Kim')
+    const res = await k.push()
+    expect(res.acked).toBe(1)
+    expect(await k.db.syncQueue.count()).toBe(0)
+    expect(gameStats()).toBe(5) // the admin's Game Stats row is refreshed by the script
+    const opps = gas.ss.getSheetByName('Opponents')!
+    const hdr = opps.cells[0]
+    expect(opps.cells.slice(1).map((r) => [r[hdr.indexOf('name')], r[hdr.indexOf('rank')], r[hdr.indexOf('edited_by')]])).toEqual([['AMP', 5, 'Kim']])
+    const audit = gas.ss.getSheetByName('_Audit')!
+    expect(String(audit.cells.at(-1)![5])).toContain('ranks 1')
+
+    // Jacob's stale copy (older edit) doesn't undo Kim's when he pushes everything again.
+    await jacob.push(true)
+    expect(gameStats()).toBe(5)
+    await jacob.pull()
+    expect((await jacob.db.opponents.toArray())[0]).toMatchObject({ rank: 5, edited_by: 'Kim' })
+
+    // Team view gets the ranks in the public snapshot.
+    const snap = get(gas, { action: 'snapshot' })
+    expect(snap.opponents).toEqual([expect.objectContaining({ name: 'AMP', season: '2026', rank: 5, edited_by: 'Kim' })])
+  })
+})

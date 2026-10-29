@@ -60,12 +60,12 @@ export const ackOps = (db: StatsDB, ops: SyncOp[]) =>
  */
 export async function pushChanges(env: Env, ops: SyncOp[], full: boolean): Promise<SyncOp[]> {
   const { db } = env
-  const [teams, players, games, points, events, remote] = await Promise.all([
-    db.teams.toArray(), db.players.toArray(), db.games.toArray(), db.points.toArray(), db.events.toArray(), db.remote.toArray(),
+  const [teams, players, games, points, events, remote, opponents] = await Promise.all([
+    db.teams.toArray(), db.players.toArray(), db.games.toArray(), db.points.toArray(), db.events.toArray(), db.remote.toArray(), db.opponents.toArray(),
   ])
   const me = whoOf(env).get()
   const byGame = new Map(remote.map((r) => [r.game_id, r]))
-  const body = buildPush({ teams, players, games, points, events }, ops, full, {
+  const body = buildPush({ teams, players, games, points, events, opponents }, ops, full, {
     canWrite: (id) => canWriteGame(byGame.get(id), me),
     bases: Object.fromEntries(remote.map((r) => [r.game_id, r.rev])),
   })
@@ -99,6 +99,7 @@ export async function pushChanges(env: Env, ops: SyncOp[], full: boolean): Promi
 export interface PullResult {
   games: number
   players: number
+  opponents: number
   kept: number
 }
 
@@ -118,8 +119,8 @@ export async function pull(env: Env): Promise<PullResult> {
 }
 
 export async function mergePull(db: StatsDB, snap: ReturnType<typeof parseSnapshot>, registry: RemoteGame[]): Promise<PullResult> {
-  const res: PullResult = { games: 0, players: 0, kept: 0 }
-  await db.transaction('rw', [db.teams, db.players, db.games, db.points, db.events, db.syncQueue, db.remote], async () => {
+  const res: PullResult = { games: 0, players: 0, opponents: 0, kept: 0 }
+  await db.transaction('rw', [db.teams, db.players, db.games, db.points, db.events, db.opponents, db.syncQueue, db.remote], async () => {
     const queue = await db.syncQueue.toArray()
     const pending = new Set(queue.map((o) => o.op_id))
     const localPoints = await db.points.toArray()
@@ -149,6 +150,16 @@ export async function mergePull(db: StatsDB, snap: ReturnType<typeof parseSnapsh
       if (!cur || p.updated_at >= cur.updated_at) {
         await db.players.put(p)
         res.players++
+      }
+    }
+
+    // Opponent ranks: shared like players (the newer edit wins; my unsent edit stays).
+    for (const o of snap.opponents) {
+      const cur = await db.opponents.get(o.id)
+      if (pending.has(`opponents:${o.id}`)) continue
+      if (!cur || o.updated_at >= cur.updated_at) {
+        await db.opponents.put(o)
+        res.opponents++
       }
     }
 

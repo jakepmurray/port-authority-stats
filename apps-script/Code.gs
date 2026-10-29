@@ -19,11 +19,15 @@
  * Every accepted push raises the game's rev; a push based on an older rev is
  * rejected as stale. Who/what is logged in the hidden _Audit tab.
  *
+ * Opponent ranks (version 5): shared team data in the Opponents tab, like players:
+ * anyone with a key may change them and the newer edit wins. Game Stats' opp_rank
+ * column is refreshed from it on every push.
+ *
  * Team view: every push also keeps a read-only copy of the data in the hidden
  * _Snapshot tab; GET /exec?action=snapshot returns it with no key.
  */
 
-var SCRIPT_VERSION = 4;
+var SCRIPT_VERSION = 5;
 /** Version 1-3 stored the admin token in plain text here; it is moved to a hash on first use. */
 var TOKEN_PROPERTY = 'PA_TOKEN';
 var ADMIN_HASH_PROPERTY = 'PA_ADMIN_HASH';
@@ -50,16 +54,17 @@ var TABS = {
     'holds', 'breaks', 'broken', 'them_holds', 'o_conversion', 'd_break_pct', 'turnovers', 'turnovers_per_point', 'ds',
     'possessions', 'scoring_efficiency', 'opp_turnovers', 'opp_ds', 'pulls', 'subs', 'injury_subs', 'points_missed_on_film',
     'calls_by_us', 'calls_by_them', 'calls_by_us_detail', 'calls_by_them_detail', 'turnover_tags', 'opp_turnover_tags',
-    'youtube'],
+    'youtube', 'opp_rank'],
+  'Opponents': ['id', 'name', 'season', 'rank', 'usau_name', 'deleted', 'updated_at', 'edited_by'],
   'Meta': ['key', 'value']
 };
 /** Tabs upserted / deleted by id. */
-var UPSERT_TABS = ['Players', 'Games'];
+var UPSERT_TABS = ['Players', 'Games', 'Opponents'];
 /** Tabs replaced per game (all rows of a pushed game are swapped for the new snapshot). */
 var GAME_TABS = ['Points', 'Events', 'Player Stats', 'Game Stats'];
 /** Columns kept as plain text (so "07" stays "07" and ids never turn into numbers). */
 var TEXT_COLUMNS = ['id', 'game_id', 'player_id', 'number', 'actor_number', 'receiver_number', 'defender_number',
-  'call_charged_number', 'line', 'line_end', 'pulled_by', 'date', 'key', 'value', 'game_id', 'owner_id', 'who_id', 'games'];
+  'call_charged_number', 'line', 'line_end', 'pulled_by', 'date', 'key', 'value', 'game_id', 'owner_id', 'who_id', 'games', 'season'];
 
 /** Hidden tabs. */
 var SNAPSHOT_TAB = '_Snapshot';
@@ -373,6 +378,41 @@ function normName_(s) {
   return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+/** Opponent names compared like the app does (src/domain/opponents.ts normOpp). */
+function normOpp_(s) {
+  return String(s || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/&/g, ' and ').replace(/['\u2019`.]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/** Fill Game Stats' opp_rank from the Opponents tab: that season's rank, else the all-seasons one. */
+function refreshRanks_(ss) {
+  var os = ss.getSheetByName('Opponents');
+  var gs = ss.getSheetByName('Game Stats');
+  if (!os || !gs) return 0;
+  var oh = readHeader_(os);
+  var ranks = {};
+  readRows_(os, oh.length).forEach(function (r) {
+    var rank = r[oh.indexOf('rank')];
+    if (String(r[oh.indexOf('deleted')]) === 'true' || rank === '' || rank === null) return;
+    ranks[normOpp_(r[oh.indexOf('name')]) + '|' + String(r[oh.indexOf('season')] || '')] = Number(rank);
+  });
+  var gh = readHeader_(gs);
+  var col = gh.indexOf('opp_rank');
+  if (col < 0) return 0;
+  var rows = readRows_(gs, gh.length);
+  if (!rows.length) return 0;
+  var changed = 0;
+  var vals = rows.map(function (r) {
+    var key = normOpp_(r[gh.indexOf('opponent')]);
+    var year = String(r[gh.indexOf('date')] || '').substring(0, 4);
+    var v = /^\d{4}$/.test(year) && ranks.hasOwnProperty(key + '|' + year) ? ranks[key + '|' + year] : (ranks.hasOwnProperty(key + '|') ? ranks[key + '|'] : '');
+    if (String(r[col]) !== String(v)) changed++;
+    return [v];
+  });
+  if (changed) gs.getRange(2, col + 1, vals.length, 1).setValues(vals);
+  return changed;
+}
+
 function stamp_(rows, name) {
   var out = [];
   for (var i = 0; i < (rows || []).length; i++) {
@@ -385,7 +425,7 @@ function stamp_(rows, name) {
 }
 
 /**
- * req.upsert: { Players: {rows, delete}, Games: {rows, delete} }
+ * req.upsert: { Players: {rows, delete}, Games: {rows, delete}, Opponents: {rows} (version 5 apps) }
  * req.replace: { game_ids, tabs: { Points, Events, 'Player Stats', 'Game Stats' } }
  * req.snapshot: { full, base: {teams, players}, games: [{id, game, points, events}], delete }
  * req.games_base: { game_id: rev the app's copy is based on } (version 4 apps)
@@ -426,6 +466,8 @@ function push_(req, ss, who, props) {
   var notes = [];
   // Players: shared, merged by id (newer updated_at wins).
   if (up.Players) counts.Players = upsertPlayers_(ss, up.Players, who, notes);
+  // Opponent ranks: shared too, same rule.
+  if (up.Opponents) counts.Opponents = upsertShared_(ss, 'Opponents', up.Opponents, who, null);
   // Games: only the ones this person may write.
   if (up.Games) {
     counts.Games = upsertRows_(ss.getSheetByName('Games'),
@@ -449,6 +491,7 @@ function push_(req, ss, who, props) {
       counts[tab] = { replaced_games: gameIds.length, written: add.length, total: kept.length };
     }
   }
+  if (up.Opponents || gameIds.length) counts.ranks_refreshed = refreshRanks_(ss);
   if (snap) {
     counts.snapshot = writeSnapshot_(ss, {
       full: !!snap.full && who.role === 'admin',
@@ -472,6 +515,7 @@ function push_(req, ss, who, props) {
   });
   saveRegistry_(ss, reg);
   var detail = [];
+  if (counts.Opponents) detail.push('ranks ' + counts.Opponents.upserted + (counts.Opponents.skipped ? ' (' + counts.Opponents.skipped + ' older skipped)' : ''));
   if (counts.Players) detail.push('players ' + counts.Players.upserted + (counts.Players.skipped ? ' (' + counts.Players.skipped + ' older skipped)' : ''));
   if (rejected.length) detail.push('rejected ' + rejected.map(function (x) { return x.game_id + ':' + x.reason; }).join(' '));
   if (migrated) detail.push('migrated ' + migrated + ' games to admin');
@@ -506,7 +550,12 @@ function upsertRows_(sheet, incoming, dels) {
 
 /** Players are shared: an older copy never overwrites a newer one. Flags likely duplicates. */
 function upsertPlayers_(ss, part, who, notes) {
-  var sheet = ss.getSheetByName('Players');
+  return upsertShared_(ss, 'Players', part, who, notes);
+}
+
+/** Shared rows (players, opponent ranks): an older copy never overwrites a newer one. `notes` (players only) collects likely duplicates. */
+function upsertShared_(ss, tab, part, who, notes) {
+  var sheet = ss.getSheetByName(tab);
   var header = readHeader_(sheet);
   var col = function (n) { return header.indexOf(n); };
   var rows = readRows_(sheet, header.length);
@@ -519,8 +568,11 @@ function upsertPlayers_(ss, part, who, notes) {
     var p = part.rows[i];
     var key = String(p.id);
     if (at.hasOwnProperty(key)) {
-      if (time(rows[at[key]][col('updated_at')]) > time(p.updated_at)) { skipped++; continue; }
-    } else {
+      var have = time(rows[at[key]][col('updated_at')]);
+      if (have > time(p.updated_at)) { skipped++; continue; }
+      // Opponent ranks are re-sent with every full push: an unchanged row keeps who last edited it.
+      if (tab !== 'Players' && have === time(p.updated_at)) continue;
+    } else if (notes) {
       for (var e = 0; e < rows.length; e++) {
         var x = rows[e];
         if (String(x[col('deleted')]) === 'true' || x[col('deleted')] === true) continue;
@@ -543,13 +595,13 @@ function pull_(ss, who, props) {
   var all = props.getProperties();
   var reg = readRegistry_(ss);
   if (migrate_(ss, reg, adminWho_(all))) saveRegistry_(ss, reg);
-  var s = readSnapshot_(ss) || { teams: [], players: [], games: [], points: [], events: [], info: {} };
+  var s = readSnapshot_(ss) || { teams: [], players: [], opponents: [], games: [], points: [], events: [], info: {} };
   var list = [];
   Object.keys(reg).sort().forEach(function (id) { list.push(regView_(reg[id])); });
   return {
     ok: true, app: 'port-authority-stats', version: SCRIPT_VERSION, kind: 'snapshot', who: who,
     updated_at: s.info.updated_at || null, full_at: s.info.full_at || null, schema_version: s.info.schema_version || null,
-    teams: s.teams, players: s.players, games: s.games, points: s.points, events: s.events,
+    teams: s.teams, players: s.players, opponents: s.opponents, games: s.games, points: s.points, events: s.events,
     registry: list, people: people_(props)
   };
 }
@@ -617,23 +669,37 @@ function readEntries_(sheet) {
   return out;
 }
 
-/** Players merged by id: the newer updated_at wins. Teams: only the admin changes them. */
-function mergeBase_(old, incoming, who) {
-  old = old || { teams: [], players: [] };
-  if (!incoming) return old;
+/** Rows merged by id: the newer updated_at wins. `stampAs`: name written to edited_by on rows this push changed. */
+function mergeById_(oldList, incomingList, stampAs) {
   var byId = {};
   var order = [];
-  (old.players || []).forEach(function (p) { byId[p.id] = p; order.push(p.id); });
-  (incoming.players || []).forEach(function (p) {
-    if (!byId[p.id]) order.push(p.id);
-    if (!byId[p.id] || (Number(p.updated_at) || 0) >= (Number(byId[p.id].updated_at) || 0)) byId[p.id] = p;
+  (oldList || []).forEach(function (p) { byId[p.id] = p; order.push(p.id); });
+  (incomingList || []).forEach(function (p) {
+    var cur = byId[p.id];
+    if (!cur) order.push(p.id);
+    var t = Number(p.updated_at) || 0;
+    var c = cur ? Number(cur.updated_at) || 0 : -1;
+    if (t < c) return;
+    if (stampAs && t > c) { var o = {}; for (var k in p) o[k] = p[k]; o.edited_by = stampAs; p = o; }
+    byId[p.id] = stampAs && t === c ? cur : p;
   });
+  return order.map(function (id) { return byId[id]; });
+}
+
+/** Players and opponent ranks merged by id (the newer updated_at wins). Teams: only the admin changes them. */
+function mergeBase_(old, incoming, who) {
+  old = old || { teams: [], players: [], opponents: [] };
+  if (!incoming) return old;
   var teams = who.role === 'admin' || !(old.teams || []).length ? (incoming.teams || old.teams || []) : old.teams;
-  return { teams: teams, players: order.map(function (id) { return byId[id]; }) };
+  return {
+    teams: teams,
+    players: mergeById_(old.players, incoming.players, null),
+    opponents: mergeById_(old.opponents, incoming.opponents, who.name || 'Admin')
+  };
 }
 
 /**
- * snap: { full, base: {teams, players}, games: [{id, game, points, events}], delete: [game ids] }
+ * snap: { full, base: {teams, players, opponents}, games: [{id, game, points, events}], delete: [game ids] }
  * Stored as rows (key, part, chunk): "base", "game:<id>" and "info". Only the listed games
  * change; other people's games stay. `full` (admin's Push everything) marks it complete.
  */
@@ -665,12 +731,12 @@ function readSnapshot_(ss) {
   var sheet = ss.getSheetByName(SNAPSHOT_TAB);
   if (!sheet) return null;
   var cur = readEntries_(sheet);
-  var out = { teams: [], players: [], games: [], points: [], events: [], info: cur.values.info || {} };
+  var out = { teams: [], players: [], opponents: [], games: [], points: [], events: [], info: cur.values.info || {} };
   for (var i = 0; i < cur.order.length; i++) {
     var key = cur.order[i];
     var v = cur.values[key];
     if (!v || key === 'info') continue;
-    if (key === 'base') { out.teams = v.teams || []; out.players = v.players || []; }
+    if (key === 'base') { out.teams = v.teams || []; out.players = v.players || []; out.opponents = v.opponents || []; }
     else if (key.indexOf('game:') === 0) {
       out.games.push(v.game);
       out.points = out.points.concat(v.points || []);
@@ -690,7 +756,7 @@ function snapshotResponse_(ss) {
     return {
       ok: true, app: 'port-authority-stats', version: SCRIPT_VERSION, kind: 'snapshot',
       updated_at: s.info.updated_at || null, full_at: s.info.full_at || null, schema_version: s.info.schema_version || null,
-      teams: s.teams, players: s.players, games: s.games, points: s.points, events: s.events
+      teams: s.teams, players: s.players, opponents: s.opponents, games: s.games, points: s.points, events: s.events
     };
   } catch (err) {
     return { ok: false, error: 'script_error', message: String(err && err.message ? err.message : err) };

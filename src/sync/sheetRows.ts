@@ -1,7 +1,8 @@
 import { formatTagBreakdown, computeGameStats, type GameStats, type PlayerStats } from '../domain/stats'
 import { liveOnly } from '../domain/game'
 import { lineTimeline } from '../domain/subs'
-import type { Game, GameEvent, Player, Point } from '../domain/schema'
+import type { Game, GameEvent, Opponent, Player, Point } from '../domain/schema'
+import { rankFor } from '../domain/opponents'
 import { ytLink } from '../domain/exports'
 
 /**
@@ -26,7 +27,8 @@ export const SHEET_TABS = {
     'holds', 'breaks', 'broken', 'them_holds', 'o_conversion', 'd_break_pct', 'turnovers', 'turnovers_per_point', 'ds',
     'possessions', 'scoring_efficiency', 'opp_turnovers', 'opp_ds', 'pulls', 'subs', 'injury_subs', 'points_missed_on_film',
     'calls_by_us', 'calls_by_them', 'calls_by_us_detail', 'calls_by_them_detail', 'turnover_tags', 'opp_turnover_tags',
-    'youtube'],
+    'youtube', 'opp_rank'],
+  Opponents: ['id', 'name', 'season', 'rank', 'usau_name', 'deleted', 'updated_at', 'edited_by'],
   Meta: ['key', 'value'],
 } as const
 
@@ -45,6 +47,11 @@ const youtube = (g: Game) => (g.video.youtube_id ? `https://youtu.be/${g.video.y
 
 export function playerRow(p: Player): SheetRow {
   return { id: p.id, number: p.number, name: p.name, gender_match: p.gender_match, role: p.role, active: p.active, deleted: p.deleted, updated_at: iso(p.updated_at), edited_by: '' }
+}
+
+/** Opponent ranks: shared, upserted by id (the script keeps the newer copy). */
+export function opponentRow(o: Opponent): SheetRow {
+  return { id: o.id, name: o.name, season: o.season, rank: o.rank, usau_name: o.usau_name, deleted: o.deleted, updated_at: iso(o.updated_at), edited_by: '' }
 }
 
 export function gameRow(g: Game): SheetRow {
@@ -97,7 +104,8 @@ export function playerStatsRow(g: Game, s: PlayerStats, p: Player | undefined): 
   }
 }
 
-export function gameStatsRow(g: Game, s: GameStats): SheetRow {
+/** `rank`: the opponent's USAU rank for that season (the script refreshes this column whenever ranks change). */
+export function gameStatsRow(g: Game, s: GameStats, rank: number | null = null): SheetRow {
   const st = s.state
   return {
     id: g.id, game_id: g.id, date: g.date, tournament: g.tournament, opponent: g.opponent,
@@ -111,7 +119,7 @@ export function gameStatsRow(g: Game, s: GameStats): SheetRow {
     calls_by_us: s.team.calls_made, calls_by_them: s.team.calls_against,
     calls_by_us_detail: formatTagBreakdown(s.team.calls_made_by), calls_by_them_detail: formatTagBreakdown(s.team.calls_against_by),
     turnover_tags: formatTagBreakdown(s.team.turnover_tags), opp_turnover_tags: formatTagBreakdown(s.opponent.turnover_tags),
-    youtube: youtube(g),
+    youtube: youtube(g), opp_rank: rank,
   }
 }
 
@@ -123,7 +131,7 @@ export interface GameSnapshot {
 }
 
 /** Everything the Sheet holds for one game (live rows only; deleted rows simply drop out). */
-export function gameSnapshot(g: Game, allPoints: Point[], allEvents: GameEvent[], byId: Map<string, Player>): GameSnapshot {
+export function gameSnapshot(g: Game, allPoints: Point[], allEvents: GameEvent[], byId: Map<string, Player>, opponents: Opponent[] = []): GameSnapshot {
   const points = liveOnly(allPoints).filter((p) => p.game_id === g.id).sort((a, b) => a.idx - b.idx)
   const live = new Set(points.map((p) => p.id))
   const idx = new Map(points.map((p) => [p.id, p.idx]))
@@ -137,6 +145,6 @@ export function gameSnapshot(g: Game, allPoints: Point[], allEvents: GameEvent[]
     'Player Stats': [...stats.players.values()]
       .sort((a, b) => Number(byId.get(a.player_id)?.number ?? 999) - Number(byId.get(b.player_id)?.number ?? 999))
       .map((s) => playerStatsRow(g, s, byId.get(s.player_id))),
-    'Game Stats': [gameStatsRow(g, stats)],
+    'Game Stats': [gameStatsRow(g, stats, rankFor(g, opponents)?.rank ?? null)],
   }
 }

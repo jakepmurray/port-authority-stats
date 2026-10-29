@@ -3,7 +3,8 @@ import { makeBackup, mergeRows, parseBackup, type Backup } from '../domain/backu
 import type { EventDraft } from '../domain/entry'
 import { deriveGame, liveOnly, missedState, outcomeOf, replayPoint, type CapKind } from '../domain/game'
 import { normalizeTag } from '../domain/tags'
-import type { Game, GameEvent, GenderMatch, Point, Side } from '../domain/schema'
+import { opponentId } from '../domain/opponents'
+import type { Game, GameEvent, GenderMatch, Opponent, Point, Side } from '../domain/schema'
 import { planGame, type NameChoice, type UAGame } from '../domain/ultianalytics'
 import { repo as defaultRepo, type NewRow, type Repo } from './repo'
 
@@ -264,15 +265,37 @@ export class Actions {
     return { games: saved, playersCreated: created }
   }
 
+  /**
+   * Set opponent ranks (one per opponent and season; '' = every season). Shared team data:
+   * anyone may change it and the newer edit wins. rank null clears it.
+   */
+  async setRanks(list: { name: string; season: string; rank: number | null; usau_name?: string }[], editedBy = '') {
+    const team = await this.ensureTeam()
+    const out: Opponent[] = []
+    for (const r of list) {
+      const id = opponentId(r.name, r.season)
+      const cur = await this.repo.get('opponents', id)
+      const patch = { rank: r.rank, usau_name: r.usau_name ?? cur?.usau_name ?? '', edited_by: editedBy, deleted: false }
+      if (cur) {
+        if (cur.rank === patch.rank && cur.usau_name === patch.usau_name && !cur.deleted) continue
+        out.push(await this.repo.update('opponents', id, patch, { byHand: true }))
+      } else if (r.rank !== null) {
+        out.push(await this.repo.create('opponents', { id, team_id: team.id, name: r.name.trim(), season: r.season, ...patch }))
+      }
+    }
+    return out
+  }
+
   async exportBackup(): Promise<Backup> {
-    const [teams, players, games, points, events] = await Promise.all([
+    const [teams, players, games, points, events, opponents] = await Promise.all([
       this.repo.all('teams'),
       this.repo.all('players'),
       this.repo.all('games'),
       this.repo.all('points'),
       this.repo.all('events'),
+      this.repo.all('opponents'),
     ])
-    return makeBackup({ teams, players, games, points, events })
+    return makeBackup({ teams, players, games, points, events, opponents })
   }
 
   /** Restore a backup. 'merge' keeps whichever copy of each row is newer; 'replace' wipes first. */
@@ -280,16 +303,16 @@ export class Actions {
     const b = parseBackup(json)
     const d = this.repo.db
     const counts: Record<string, number> = {}
-    await d.transaction('rw', [d.teams, d.players, d.games, d.points, d.events, d.syncQueue], async () => {
-      if (mode === 'replace') await Promise.all([d.teams.clear(), d.players.clear(), d.games.clear(), d.points.clear(), d.events.clear()])
+    await d.transaction('rw', [d.teams, d.players, d.games, d.points, d.events, d.opponents, d.syncQueue], async () => {
+      if (mode === 'replace') await Promise.all([d.teams.clear(), d.players.clear(), d.games.clear(), d.points.clear(), d.events.clear(), d.opponents.clear()])
       const put = async <T extends { id: string; updated_at: number }>(tbl: unknown, rows: T[]) => {
         const table = tbl as import('dexie').Table<T, string>
         const write = mode === 'replace' ? rows : mergeRows(await table.toArray(), rows)
         await table.bulkPut(write)
         counts[table.name] = write.length
         // Queue restored players and games for Sheet sync (each game is pushed as a full snapshot).
-        if (table.name === 'players' || table.name === 'games') {
-          await d.syncQueue.bulkPut(write.map((r) => ({ op_id: `${table.name}:${r.id}`, table: table.name as 'players' | 'games', row_id: r.id, payload: r, attempts: 0, last_error: null })))
+        if (table.name === 'players' || table.name === 'games' || table.name === 'opponents') {
+          await d.syncQueue.bulkPut(write.map((r) => ({ op_id: `${table.name}:${r.id}`, table: table.name as 'players' | 'games' | 'opponents', row_id: r.id, payload: r, attempts: 0, last_error: null })))
         }
       }
       await put(d.teams, b.teams)
@@ -297,6 +320,7 @@ export class Actions {
       await put(d.games, b.games)
       await put(d.points, b.points)
       await put(d.events, b.events)
+      await put(d.opponents, b.opponents)
     })
     this.repo.onWrite?.()
     return counts

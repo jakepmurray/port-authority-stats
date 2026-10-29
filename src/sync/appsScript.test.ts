@@ -123,14 +123,14 @@ describe('Apps Script team-view snapshot (doGet ?action=snapshot)', () => {
     const { gas, token } = ready()
     expect(get(gas, { action: 'snapshot' })).toMatchObject({ ok: false, error: 'no_snapshot' })
     const r = post(gas, { ...buildPush(d, [], true), token })
-    expect(r).toMatchObject({ ok: true, version: 4, counts: { snapshot: { games: 2, full: true } } })
+    expect(r).toMatchObject({ ok: true, version: 5, counts: { snapshot: { games: 2, full: true } } })
     const tab = gas.ss.getSheetByName('_Snapshot')!
     expect(tab.hidden).toBe(true)
     expect(tab.cells[0]).toEqual(['key', 'part', 'chunk'])
     const res = gas.doGet({ parameter: { action: 'snapshot' } })
     expect(res.mime).toBe('application/json')
     const body = JSON.parse(res.text)
-    expect(body).toMatchObject({ ok: true, kind: 'snapshot', version: 4, schema_version: 2 })
+    expect(body).toMatchObject({ ok: true, kind: 'snapshot', version: 5, schema_version: 3 })
     expect(res.text).not.toContain(token)
     const snap = parseSnapshot(body)
     expect(snap.games.map((g) => g.opponent).sort()).toEqual(['Alpha', 'Bravo'])
@@ -139,7 +139,7 @@ describe('Apps Script team-view snapshot (doGet ?action=snapshot)', () => {
     expect(snap.fullAt).not.toBeNull()
     expect(snap.skipped).toBe(0)
     // the plain GET still answers the health check
-    expect(get(gas)).toMatchObject({ ok: true, version: 4, message: expect.stringContaining('POST') })
+    expect(get(gas)).toMatchObject({ ok: true, version: 5, message: expect.stringContaining('POST') })
   })
 
   it('incremental pushes replace only the touched game; deleting a game drops it; full keeps other games', () => {

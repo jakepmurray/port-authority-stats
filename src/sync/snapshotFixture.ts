@@ -1,6 +1,7 @@
 /** Test data for the team-view snapshot: two games (ids unique across games), a roster, a team. */
 import { builder } from '../domain/fixtures'
-import { PlayerSchema, TeamSchema, type GameEvent, type Point } from '../domain/schema'
+import { opponentId } from '../domain/opponents'
+import { OpponentSchema, PlayerSchema, TeamSchema, type GameEvent, type Point } from '../domain/schema'
 import type { SyncData } from './payload'
 
 export function teamData(): Required<SyncData> {
@@ -27,6 +28,7 @@ export function teamData(): Required<SyncData> {
   return {
     teams: [TeamSchema.parse({ id: 't1', name: 'Port Authority', custom_tags: ['wind'], created_at: 1, updated_at: 1 })],
     players,
+    opponents: [OpponentSchema.parse({ id: opponentId('Alpha', '2026'), team_id: 't1', name: 'Alpha', season: '2026', rank: 12, created_at: 1, updated_at: 1 })],
     games: [g1.game, g2.game, gone.game],
     points: [...a.points, ...b.points, ...c.points],
     events: [...a.events, ...b.events, ...c.events],
