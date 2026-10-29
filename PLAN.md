@@ -204,3 +204,26 @@ PocketBase is dropped because the Sheet covers sharing.
 **Tests:** `src/sync/keys.test.ts` (keys, menu, migration, ownership, audit, roster), `src/sync/twoDevices.test.ts` (two devices against one mock script), `src/ui/sharing.test.tsx` (badges, conflicts, lock), plus the existing script/client tests updated to version 4.
 
 **Jacob's steps** are in the README under *Stat-takers (script version 4)*.
+
+## 11. Built (2026-10-29): tag filters on stat tables, opponent ranks, who throws to whom
+*Requested by Jacob after §10; built in script version 5.*
+
+- **Tag filters on stat tables:** the dashboard's tag filter (any/all; only tagged / only untagged / leave out points) now
+  also drives the game page stats (own and team view) and the Season page (games table + player table). Same URL params
+  as the dashboard (`tags`, `tm`, `ts`, `t`), other params kept, `team_src` added in the team view. Score and W/L use whole games.
+- **Opponent ranks:** new `opponents` record (`id = opp:<season|all>:<name>`, `name` as on our games, `season` year or ''
+  for all seasons, `rank`, `usau_name`, `edited_by`); Dexie v4; backup schema 3 (older backups load with none).
+  - Entry: by hand, or a pasted USAU rankings page → parser (tabs, "|" tables, space lines, one cell per line) →
+    fuzzy match (normalized exact / words contained / spelling) → review (exact, likely, check; dropdown override) → save.
+  - Rank for a game: that season's, else the all-seasons one.
+  - Sync (script v5): Opponents tab upserted like players (newer `updated_at` wins; an unchanged re-send keeps its
+    editor), Game Stats `opp_rank` refreshed by the script from the Opponents tab on every push (so a stat-taker's rank edit
+    updates games they don't own), snapshot base carries opponents (merged the same way), pull merges them. Shared team
+    data: no ownership, any key may edit, audited ("ranks N").
+  - Dashboard: hold % / break % vs rank scatter with optional least-squares trend lines; all dashboard filters apply.
+- **Who throws to whom:** thrower × receiver matrix (by volume) of completions (catch, goal), pair turnovers (drop,
+  throwaway with an intended receiver), or completion %; drill-down to the throws with film links; top pairs; WMP/MMP
+  split; card filters: opponent, players on the starting line, min throws; top 8 on phones.
+- **Limits:** client clocks decide rank edits; ranks match our opponent names exactly after normalizing, so renaming an
+  opponent on a game needs its rank re-entered; the USAU page layout may change (the parser is tolerant but untested
+  against every variant); the connections card's own filters are not in the link.

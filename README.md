@@ -73,6 +73,13 @@ Paste a YouTube link, watch the game beside a stat panel, and every stat you ent
 - **Headline cards:** record, point diff, hold %, break %, turnovers per point, blocks per point and completion %. Each has a small per-game line, and an arrow comparing the last 3 games with the earlier ones (from 4 games).
 - **Charts:**
   - hold % and break % by game;
+  - hold % and break % against the opponent's USAU rank (one dot per game, left = stronger opponents, optional trend
+    lines with a "per 10 places" summary; games without a rank are counted and left out);
+  - **who throws to whom:** a thrower × receiver matrix (most-used first) shaded by completions, turnovers on that pair,
+    or completion %; plus *Top pairs* and *By gender* (WMP → MMP etc.). Its own filters: opponent, players on the line
+    (points that started with them) and a minimum number of throws. Tap a cell, or a name for the whole row/column, to list
+    those throws with ▶ film links. On a phone it shows the top 8 throwers and receivers (*Show everyone* for the rest)
+    and scrolls sideways;
   - turnovers by type, stacked by tag (ours or theirs);
   - player leaderboard (totals or per point, sortable, with a minimum-points setting);
   - player scatter (throws per point vs completion %, or +/- per point vs points played);
@@ -90,6 +97,32 @@ Paste a YouTube link, watch the game beside a stat panel, and every stat you ent
   - Completion % is hidden while counting only tagged events, because passes are rarely tagged.
   - Imported games have no gender ratio, so they are left out of the ratio chart.
   - Points missed on film count for the score but add no plays.
+  - Who throws to whom: a throwaway counts for a pair only when the intended receiver was recorded (drops always have
+    one); the line filter uses the line that started the point (mid-point subs aren't followed); its opponent, line and
+    minimum settings are not saved in the link.
+
+## Stat tables: tag filters and opponent ranks
+
+- **Tag filter on the game and season tables:** the game page's *Stats* (and the team view's game page) and the *Season*
+  page have a *Tag filter* with the same modes as the dashboard. Example: tag throwaways "wind punt", pick it, and choose
+  *Count only events without them* to leave those throwaways out of everyone's numbers. The filter is saved in the link
+  (`#/season?tags=wind+punt&ts=without`, same names as the dashboard: `tags`, `tm`, `ts`, `t` for tournament), so
+  **Copy link** shares the view; in the team view the link also carries the source, so it opens for anyone.
+- **Season page:** a *Games* table (date, opponent, **Rank**, score, W/L, holds, hold %, breaks, break %, turns, Ds;
+  sortable by rank, hold % and break %) above the player table. Score and W/L always use the whole game.
+- **Opponent ranks (USAU):** the *Season* page's *Opponent ranks* card. Pick the season (a year; *All seasons* is the
+  fallback used when a year has no rank), then either type a rank next to each opponent or:
+  1. Click **Paste USAU rankings** and open the linked USAU club rankings page (choose the division and the end-of-season
+     list there).
+  2. Select the whole page (Ctrl+A / ⌘A), copy, and paste it into the box. USAU blocks other sites from reading the page,
+     so copy and paste is the way (same as roster import). A copied table, "1 Team 2163 …" lines and one cell per line
+     all work.
+  3. Click **Read rankings**. Each of your opponents gets the closest USAU team name with a badge: *exact*, *likely*
+     (e.g. "Disco" → "Austin Disco Club") or *check*. Likely and exact are ticked; change the team in the dropdown or
+     untick a row. Nothing is saved until you click **Save N ranks**.
+  Ranks are shared team data: anyone with a key (admin or stat-taker) can change them, the newest edit wins, and who
+  changed it is shown (and stored as `edited_by`). They sync to the Sheet (an **Opponents** tab, and an `opp_rank`
+  column in **Game Stats** that the script refreshes on every push) and to the team view. Needs script version 5.
 
 ## Google Sheet sync (free)
 
@@ -140,6 +173,10 @@ Script version 3 (October 2026) adds the read-only team view (below). After upda
 
 Script version 4 (October 2026) adds stat-takers with their own keys, game ownership and the audit log (below). Your old
 token keeps working as the admin key.
+
+Script version 5 (October 2026) adds opponent ranks: an **Opponents** tab and an `opp_rank` column at the end of
+**Game Stats** (added to an existing Sheet automatically), and ranks in the team-view snapshot. Keys, owners and the
+audit log work as in version 4. After updating (steps above), click *Test connection*, then *Push everything* once.
 
 ### Stat-takers (script version 4)
 
