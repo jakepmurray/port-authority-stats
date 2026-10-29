@@ -6,11 +6,11 @@ export const SETUP_STEPS: string[] = [
   'In the Sheet, click Extensions > Apps Script.',
   'Delete the sample code in Code.gs, paste in all of apps-script/Code.gs from the repo (on GitHub, use the “Copy raw file” button), and click Save (the disk icon).',
   'In the function menu at the top, pick setup and click Run. When Google asks, click Review permissions and pick your account. If you see "Google hasn’t verified this app", click Advanced > Go to (your project name) (unsafe), then Allow. It is your own script.',
-  'The Execution log at the bottom shows your sync token (a long string of letters and numbers). Copy it now; it is shown only once. If you lose it, run rotateToken the same way.',
+  'The Execution log at the bottom shows your admin key (a long string of letters and numbers). Copy it now; it is shown only once. If you lose it, run rotateToken the same way.',
   'Click Deploy > New deployment. Click the gear next to "Select type" and choose Web app. Set Execute as: Me and Who has access: Anyone. Click Deploy and authorize again if asked.',
   'Copy the Web app URL. It ends in /exec.',
   'Back in the Sheet, click File > Share > Publish to web. Open "Published content and settings", untick "Entire document", tick only Player Stats, Game Stats and Events, then click Publish and OK. Anyone with that link can read those three tabs; Players, Games, Points and Meta stay private.',
-  'In this app, open Settings, paste the URL and the token, click Save, then click Test connection. It should say "Connected". Then click Sync now.',
+  'In this app, open Settings, paste the URL and the key into Your key, click Save, then click Test connection. It should say "Connected as admin". Then click Sync now.',
 ]
 
 export const REDEPLOY_STEPS: string[] = [

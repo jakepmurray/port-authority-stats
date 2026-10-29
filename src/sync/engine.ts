@@ -22,8 +22,11 @@ export interface EngineDeps {
   config: () => SyncConfig | null
   /** Queued row changes (one per row; the latest write wins). */
   pendingOps: () => Promise<SyncOp[]>
-  /** Send the push for these ops; resolves when the script acknowledged it. */
-  push: (cfg: SyncConfig, ops: SyncOp[], full: boolean) => Promise<void>
+  /**
+   * Send the push for these ops; resolves when the script acknowledged it. May return
+   * the ops to acknowledge (the rest stay queued, e.g. held as conflicts).
+   */
+  push: (cfg: SyncConfig, ops: SyncOp[], full: boolean) => Promise<SyncOp[] | void>
   /** Remove acknowledged ops (only those not rewritten since they were read). */
   ack: (ops: SyncOp[]) => Promise<void>
   online: () => boolean
@@ -150,8 +153,9 @@ export class SyncEngine {
     let result: { ok: boolean; error?: string }
     try {
       const ops = await this.d.pendingOps()
-      if (ops.length || full) await this.d.push(c, ops, full)
-      await this.d.ack(ops)
+      let acked = ops
+      if (ops.length || full) acked = (await this.d.push(c, ops, full)) ?? ops
+      await this.d.ack(acked)
       const left = (await this.d.pendingOps()).length
       const t = this.d.now()
       this.attempt = 0

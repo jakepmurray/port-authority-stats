@@ -10,11 +10,51 @@
  */
 export type FetchFn = (input: string, init: RequestInit) => Promise<Response>
 
+/** Who the script says this key belongs to (version 4+). */
+export interface Who {
+  role: 'admin' | 'taker'
+  id: string
+  name: string
+}
+/** One game's owner and revision, as the script keeps them. */
+export interface RemoteGame {
+  game_id: string
+  owner_id: string
+  owner_name: string
+  rev: number
+  updated_by: string
+  updated_at: string
+  deleted: boolean
+}
+export type RejectReason = 'not_owner' | 'unowned' | 'stale'
+export interface Rejection {
+  game_id: string
+  reason: RejectReason
+  owner_id: string
+  owner_name: string
+  rev: number
+}
+export interface Person {
+  id: string
+  name: string
+  role: 'admin' | 'taker'
+}
+
 export interface ScriptOk {
   ok: true
   version?: number
   tabs?: { name: string; status: 'ok' | 'created' | 'headers_added'; missing: string[] }[]
   counts?: Record<string, unknown>
+  who?: Who
+  /** push: accepted games with their new rev. */
+  games?: Record<string, RemoteGame>
+  /** push: games left out because someone else owns them, nobody does, or the copy was stale. */
+  rejected?: Rejection[]
+  /** claim / release / reassign */
+  game?: RemoteGame
+  /** pull */
+  registry?: RemoteGame[]
+  people?: Person[]
 }
 export interface ScriptErr {
   ok: false
@@ -45,8 +85,11 @@ export class SyncError extends Error {
   }
 }
 
-/** 2: Games tab gained game_clock and ended_at. 3: team-view snapshot (GET ?action=snapshot). */
-export const EXPECTED_SCRIPT_VERSION = 3
+/**
+ * 2: Games tab gained game_clock and ended_at. 3: team-view snapshot (GET ?action=snapshot).
+ * 4: per-person keys, game owners and revs, pull, audit.
+ */
+export const EXPECTED_SCRIPT_VERSION = 4
 
 /** Build the fetch options. Exported so a test can pin the exact request format. */
 export function requestInit(body: Record<string, unknown>, token: string): RequestInit {
@@ -119,9 +162,18 @@ export async function callScript(fetchFn: FetchFn, url: string, token: string, b
 function scriptMessage(r: ScriptErr) {
   switch (r.error) {
     case 'bad_token':
-      return 'The script rejected the token. Copy it again from the Apps Script Execution log (or run rotateToken()).'
+      return 'The script rejected your key. Check it was pasted in full (ask Jacob for a new one if needed).'
+    case 'revoked_key':
+      return 'Your key was revoked, so nothing more can be sent. Ask Jacob if this is a mistake.'
     case 'no_token_configured':
-      return 'The script has no token yet. Run setup() in the Apps Script editor.'
+      return 'The script has no admin key yet. Run setup() in the Apps Script editor.'
+    case 'unknown_action':
+      return 'The script is older than this app. Paste the new Code.gs and deploy a new version (Manage deployments > Edit > New version).'
+    case 'not_owner':
+    case 'admin_only':
+    case 'unknown_game':
+    case 'unknown_person':
+      return r.message ?? r.error
     case 'busy':
       return 'The Sheet is busy with another sync. Will retry.'
     default:
@@ -135,6 +187,7 @@ export interface ConnectionReport {
   token: boolean | null
   tabs: ScriptOk['tabs'] | null
   version: number | null
+  who?: Who | null
   summary: string
   ok: boolean
 }
@@ -144,7 +197,7 @@ export async function testConnection(fetchFn: FetchFn, url: string, token: strin
   const u = checkUrl(url.trim())
   const base: ConnectionReport = { url: { ok: u.ok, note: u.warning }, reachable: null, token: null, tabs: null, version: null, summary: '', ok: false }
   if (!u.ok) return { ...base, summary: u.warning ?? 'Bad URL' }
-  if (!token.trim()) return { ...base, summary: 'Enter the token from the Apps Script Execution log.' }
+  if (!token.trim()) return { ...base, summary: 'Enter your key (Jacob’s admin key from the Execution log, or the stat-taker key Jacob sent you).' }
   try {
     const r = await callScript(fetchFn, url.trim(), token.trim(), { action: 'ping' })
     const tabs = r.tabs ?? []
@@ -156,17 +209,18 @@ export async function testConnection(fetchFn: FetchFn, url: string, token: strin
       token: true,
       tabs,
       version: r.version ?? null,
+      who: r.who ?? null,
       ok: !old,
       summary: old
         ? 'Connected, but the script is older than this app. Paste the new Code.gs and redeploy (Manage deployments > Edit > New version).'
         : fixed.length
           ? `Connected. Set up ${fixed.map((t) => `${t.name} (${t.status === 'created' ? 'created' : `added ${t.missing.join(', ')}`})`).join('; ')}.`
-          : 'Connected. Token accepted and all tabs and headers are in place.',
+          : `Connected${r.who ? ` as ${r.who.role === 'admin' ? 'admin' : 'stat-taker'} (${r.who.name})` : ''}. Key accepted and all tabs and headers are in place.`,
     }
   } catch (e) {
     if (!(e instanceof SyncError)) throw e
     const f = e.failure
-    if (f.kind === 'script') return { ...base, reachable: true, token: f.error === 'bad_token' || f.error === 'no_token_configured' ? false : null, summary: f.message }
+    if (f.kind === 'script') return { ...base, reachable: true, token: ['bad_token', 'revoked_key', 'no_token_configured'].includes(f.error) ? false : null, summary: f.message }
     return { ...base, reachable: f.kind === 'not_json', summary: f.message }
   }
 }

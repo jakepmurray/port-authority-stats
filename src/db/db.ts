@@ -1,6 +1,7 @@
 import Dexie, { type EntityTable } from 'dexie'
 import { isTeamHash } from '../team/link'
 import type { Correction, Game, GameEvent, Player, Point, SyncOp, Team } from '../domain/schema'
+import type { RemoteGame } from '../sync/client'
 
 export class StatsDB extends Dexie {
   teams!: EntityTable<Team, 'id'>
@@ -10,6 +11,8 @@ export class StatsDB extends Dexie {
   events!: EntityTable<GameEvent, 'id'>
   corrections!: EntityTable<Correction, 'id'>
   syncQueue!: EntityTable<SyncOp, 'op_id'>
+  /** Owner and rev of each game as the script last reported them (never edited by hand, never synced). */
+  remote!: EntityTable<RemoteGame, 'game_id'>
 
   constructor(name = 'port-authority-stats') {
     super(name)
@@ -41,6 +44,8 @@ export class StatsDB extends Dexie {
         const ended = (await games.toArray()).filter((g) => g.ended_at === now)
         await queue.bulkPut(ended.map((g) => ({ op_id: `games:${g.id}`, table: 'games' as const, row_id: g.id, payload: g, attempts: 0, last_error: null })))
       })
+    // v3: shared editing (script v4): who owns each game, and its rev.
+    this.version(3).stores({ remote: 'game_id, owner_id' })
   }
 }
 

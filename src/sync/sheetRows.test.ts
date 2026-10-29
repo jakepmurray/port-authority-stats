@@ -85,7 +85,7 @@ describe('buildPush', () => {
     expect(body.replace.tabs['Game Stats']).toHaveLength(1)
   })
 
-  it('soft-deleted rows drop out; deleted games and players are deleted', () => {
+  it('soft-deleted rows drop out; deleted games are deleted; deleted players are kept, flagged', () => {
     const d = data()
     d.events = d.events.map((e) => (e.id === 'e2' ? { ...e, deleted: true } : e))
     d.games = d.games.map((g) => (g.id === 'g2' ? { ...g, deleted: true } : g))
@@ -95,7 +95,7 @@ describe('buildPush', () => {
       { table: 'games', row_id: 'g2', payload: d.games[1] },
       { table: 'players', row_id: 'f', payload: d.players[5] },
     ])
-    expect(body.upsert.Players).toEqual({ rows: [], delete: ['f'] })
+    expect(body.upsert.Players).toEqual({ rows: [expect.objectContaining({ id: 'f', deleted: true })], delete: [] })
     expect(body.upsert.Games!.delete).toEqual(['g2'])
     expect(body.replace.game_ids).toEqual(['g1', 'g2']) // a player change refreshes every game's stats
     expect(body.replace.tabs.Events.map((e) => e.type)).not.toContain('injury')
@@ -109,5 +109,20 @@ describe('buildPush', () => {
     expect(full.upsert.Players!.rows).toHaveLength(8)
     expect(full.replace.game_ids).toEqual(['g1', 'g2'])
     expect(isEmptyPush(buildPush(d, [{ table: 'teams', row_id: 't1', payload: {} }]))).toBe(true)
+  })
+
+  it('shared editing: other people’s games are only sent for a queued change, with the rev each copy is based on', () => {
+    const d = data()
+    const opts = { canWrite: (id: string) => id === 'g1', bases: { g1: 4, g2: 7 } }
+    const full = buildPush(d, [], true, opts)
+    expect(full.replace.game_ids).toEqual(['g1'])
+    expect(full.games_base).toEqual({ g1: 4 })
+    expect(full.snapshot!.games.map((g) => g.id)).toEqual(['g1'])
+    const player = buildPush(d, [{ table: 'players', row_id: 'a', payload: null }], false, opts)
+    expect(player.replace.game_ids).toEqual(['g1'])
+    const theirs = buildPush(d, [{ table: 'points', row_id: 'g2p1', payload: null }], false, opts)
+    expect(theirs.replace.game_ids).toEqual(['g2']) // sent anyway: the script says who owns it
+    expect(theirs.games_base).toEqual({ g2: 7 })
+    expect(buildPush(d, [], true).games_base).toBeUndefined() // no bases: older behaviour
   })
 })

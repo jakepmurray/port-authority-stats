@@ -9,14 +9,14 @@ import { ytLink } from '../domain/exports'
  * (a test checks this). Rows are sent as objects keyed by header name.
  */
 export const SHEET_TABS = {
-  Players: ['id', 'number', 'name', 'gender_match', 'role', 'active', 'deleted', 'updated_at'],
+  Players: ['id', 'number', 'name', 'gender_match', 'role', 'active', 'deleted', 'updated_at', 'edited_by'],
   Games: ['id', 'date', 'tournament', 'opponent', 'game_to', 'ratio_first', 'start_on', 'timeouts_per_half',
-    'cap_half', 'cap_soft', 'cap_hard', 'youtube', 'notes', 'updated_at', 'game_clock', 'ended_at'],
+    'cap_half', 'cap_soft', 'cap_hard', 'youtube', 'notes', 'updated_at', 'game_clock', 'ended_at', 'edited_by'],
   Points: ['id', 'game_id', 'opponent', 'idx', 'score_us', 'score_them', 'start_on', 'ratio', 'outcome', 'line',
-    'line_end', 'subs', 'pulled_by', 'missed_on_film', 'manual_result', 'video_start', 'video_end', 'edited', 'updated_at'],
+    'line_end', 'subs', 'pulled_by', 'missed_on_film', 'manual_result', 'video_start', 'video_end', 'edited', 'updated_at', 'edited_by'],
   Events: ['id', 'game_id', 'opponent', 'point', 'seq', 'type', 'team', 'actor_number', 'actor', 'receiver_number',
     'receiver', 'defender_number', 'defender', 'call_kind', 'call_outcome', 'call_turnover_by', 'call_charged_number',
-    'tags', 'note', 'video_time', 'video_link', 'x', 'y', 'x_end', 'y_end', 'source', 'edited', 'updated_at'],
+    'tags', 'note', 'video_time', 'video_link', 'x', 'y', 'x_end', 'y_end', 'source', 'edited', 'updated_at', 'edited_by'],
   'Player Stats': ['id', 'game_id', 'date', 'tournament', 'opponent', 'player_id', 'number', 'name', 'gender_match',
     'points', 'o_points', 'd_points', 'partial_points', 'points_missed', 'goals', 'assists', 'hockey_assists', 'catches',
     'completions', 'throw_attempts', 'comp_pct', 'throwaways', 'drops', 'stalls', 'other_turns', 'call_turns', 'turnovers',
@@ -44,14 +44,14 @@ const nm = (byId: Map<string, Player>, id: string | null) => (id ? (byId.get(id)
 const youtube = (g: Game) => (g.video.youtube_id ? `https://youtu.be/${g.video.youtube_id}` : '')
 
 export function playerRow(p: Player): SheetRow {
-  return { id: p.id, number: p.number, name: p.name, gender_match: p.gender_match, role: p.role, active: p.active, deleted: p.deleted, updated_at: iso(p.updated_at) }
+  return { id: p.id, number: p.number, name: p.name, gender_match: p.gender_match, role: p.role, active: p.active, deleted: p.deleted, updated_at: iso(p.updated_at), edited_by: '' }
 }
 
 export function gameRow(g: Game): SheetRow {
   return {
     id: g.id, date: g.date, tournament: g.tournament, opponent: g.opponent, game_to: g.game_to, ratio_first: g.ratio_first,
     start_on: g.start_on, timeouts_per_half: g.timeouts_per_half, cap_half: g.caps.half, cap_soft: g.caps.soft, cap_hard: g.caps.hard,
-    youtube: youtube(g), notes: g.notes, updated_at: iso(g.updated_at),
+    youtube: youtube(g), notes: g.notes, updated_at: iso(g.updated_at), edited_by: '',
     game_clock: g.use_clock === true, ended_at: g.ended_at ? iso(g.ended_at) : '',
   }
 }
@@ -64,7 +64,7 @@ export function pointRow(g: Game, p: Point, events: GameEvent[], byId: Map<strin
     start_on: p.start_on, ratio: p.ratio, outcome: p.outcome, line: nums(p.line), line_end: tl.subs ? nums(tl.final) : '',
     subs: tl.subs, pulled_by: num(byId, p.pulled_by), missed_on_film: !!p.missed_on_film,
     manual_result: p.missed_on_film ? (p.manual_result ?? '') : '', video_start: p.video_start, video_end: p.video_end,
-    edited: !!p.edited_at, updated_at: iso(p.updated_at),
+    edited: !!p.edited_at, updated_at: iso(p.updated_at), edited_by: '',
   }
 }
 
@@ -78,7 +78,7 @@ export function eventRow(g: Game, pointIdx: number, e: GameEvent, byId: Map<stri
     call_charged_number: num(byId, e.call?.charged_id ?? null),
     tags: e.tags.join('; '), note: e.note,
     video_time: e.video_time === null ? null : Math.round(e.video_time * 10) / 10, video_link: ytLink(g, e.video_time),
-    x: e.x, y: e.y, x_end: e.x_end, y_end: e.y_end, source: e.source, edited: !!e.edited_at, updated_at: iso(e.updated_at),
+    x: e.x, y: e.y, x_end: e.x_end, y_end: e.y_end, source: e.source, edited: !!e.edited_at, updated_at: iso(e.updated_at), edited_by: '',
   }
 }
 

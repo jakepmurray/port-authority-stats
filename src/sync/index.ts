@@ -1,30 +1,19 @@
-import { db } from '../db/db'
+import { db, TEAM_MODE } from '../db/db'
 import { repo } from '../db/repo'
-import type { SyncOp } from '../domain/schema'
-import { callScript } from './client'
+import { MiniStore } from '../ui/store'
 import { SyncEngine } from './engine'
-import { buildPush, isEmptyPush } from './payload'
+import { ackOps, discardChanges, ownership, pendingOps, pull, pullAndRetry, pushChanges, type Env, type OwnershipAction } from './remote'
 import { loadConfig, loadLastSynced, saveLastSynced } from './settings'
 
-const stamp = (op: SyncOp) => (op.payload as { updated_at?: number } | null)?.updated_at ?? 0
+const browserFetch: Env['fetchFn'] = (u, i) => fetch(u, i)
+const env = (cfg = loadConfig()): Env | null => (cfg && cfg.url.trim() && cfg.token.trim() ? { db, fetchFn: browserFetch, cfg } : null)
 
 /** The app's one sync engine, wired to IndexedDB and fetch. */
 export const sync = new SyncEngine({
   config: loadConfig,
-  pendingOps: () => db.syncQueue.toArray(),
-  push: async (cfg, ops, full) => {
-    const [teams, players, games, points, events] = await Promise.all([db.teams.toArray(), db.players.toArray(), db.games.toArray(), db.points.toArray(), db.events.toArray()])
-    const body = buildPush({ teams, players, games, points, events }, ops, full)
-    // Nothing for the Sheet (e.g. only team settings changed): still check the URL and token.
-    await callScript((u, i) => fetch(u, i), cfg.url, cfg.token, isEmptyPush(body) ? { action: 'ping' } : (body as unknown as Record<string, unknown>))
-  },
-  // Remove only ops whose row was not written again while the push was in flight.
-  ack: (ops) =>
-    db.transaction('rw', db.syncQueue, async () => {
-      const cur = await db.syncQueue.bulkGet(ops.map((o) => o.op_id))
-      const done = ops.filter((o, i) => cur[i] && stamp(cur[i]!) === stamp(o)).map((o) => o.op_id)
-      await db.syncQueue.bulkDelete(done)
-    }),
+  pendingOps: () => pendingOps(db),
+  push: (cfg, ops, full) => pushChanges({ db, fetchFn: browserFetch, cfg }, ops, full),
+  ack: (ops) => ackOps(db, ops),
   online: () => (typeof navigator === 'undefined' ? true : navigator.onLine),
   now: () => Date.now(),
   setTimer: (fn, ms) => setTimeout(fn, ms),
@@ -33,13 +22,50 @@ export const sync = new SyncEngine({
   lastSynced: loadLastSynced(),
 })
 
+/** Pull state for the UI. */
+export const pullState = new MiniStore<{ busy: boolean; at: number | null; error: string | null; note: string | null }>({ busy: false, at: null, error: null, note: null })
+
+const guard = async <T,>(fn: (e: Env) => Promise<T>): Promise<T> => {
+  const e = env()
+  if (!e) throw new Error('Add the script URL and your key in Settings first.')
+  return fn(e)
+}
+
+/** Pull everyone's games into this device (keeps your unsent changes). */
+export async function pullNow() {
+  if (pullState.get().busy) return
+  pullState.set({ busy: true, error: null })
+  try {
+    const r = await guard(pull)
+    pullState.set({ busy: false, at: Date.now(), note: `Pulled ${r.games} game${r.games === 1 ? '' : 's'}${r.kept ? ` (kept your unsent changes in ${r.kept})` : ''}.` })
+  } catch (e) {
+    pullState.set({ busy: false, error: (e as Error).message })
+  }
+}
+
+export async function changeOwner(action: OwnershipAction, gameId: string, toId?: string) {
+  const g = await guard((e) => ownership(e, action, gameId, toId))
+  void sync.notifyChange()
+  return g
+}
+export async function retryGame(gameId: string) {
+  await guard((e) => pullAndRetry(e, gameId))
+  return sync.syncNow()
+}
+export async function discardGame(gameId: string) {
+  await guard((e) => discardChanges(e, gameId))
+  void sync.notifyChange()
+}
+
 let started = false
 /** Start listening for writes and connectivity. Called once by the app shell. */
 export function startSync() {
-  if (started || typeof window === 'undefined') return
+  if (started || typeof window === 'undefined' || TEAM_MODE) return
   started = true
   repo.onWrite = () => void sync.notifyChange()
   window.addEventListener('online', () => void sync.onOnline())
   window.addEventListener('offline', () => sync.onOffline())
-  void sync.notifyChange()
+  // Bring in everyone's latest games first (needs script v4; older scripts just say so).
+  if (env() && navigator.onLine) void pullNow().finally(() => void sync.notifyChange())
+  else void sync.notifyChange()
 }
