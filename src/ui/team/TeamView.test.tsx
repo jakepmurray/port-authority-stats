@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // The database is chosen at load from the hash, exactly like opening a team view link.
@@ -145,6 +145,18 @@ describe('team view (read only)', () => {
     await flush()
     // the shared dashboard link keeps the source, so it opens for a teammate who never visited
     expect(window.location.hash).toBe(`#/team/dashboard?tags=wind&team_src=${encodeURIComponent(SRC)}`)
+    // Who throws to whom exclusions work read-only too, and ride along in the shared link.
+    act(() => screen.getByRole('button', { name: /wind/ }).click())
+    await flush()
+    const recv = screen.getByLabelText('Exclude receivers')
+    fireEvent.focus(recv)
+    fireEvent.change(recv, { target: { value: 'B' } })
+    fireEvent.keyDown(recv, { key: 'Enter' })
+    expect(screen.queryByRole('button', { name: /^A to B:/ })).toBeNull()
+    expect(screen.getByTestId('conn-exclusions').textContent).toMatch(/^Excluding receivers: B/)
+    expect(window.location.hash.startsWith('#/team/dashboard?')).toBe(true)
+    expect(window.location.hash).toContain(`team_src=${encodeURIComponent(SRC)}`)
+    expect(window.location.hash).toMatch(/&cxr=[^&]+$/)
   })
 
   it('every write is refused, and the visitor’s own data and sync queue are untouched', async () => {

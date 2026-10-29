@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { connRows, genderSplit, passMatrix, pairEvents, topConnections } from './connections'
+import { connRows, connStateToQuery, DEFAULT_CONN_STATE, exclusionNote, genderSplit, parseConnState, passMatrix, pairEvents, topConnections } from './connections'
 import { buildGameRows, DEFAULT_FILTER, drillEvents, type DashFilter } from './dashboard'
 import { builder } from './fixtures'
 
@@ -54,5 +54,33 @@ describe('who throws to whom', () => {
     expect(pairEvents(rows, 'a', 'd', 'turnover').map((r) => r.game.id)).toEqual(['g2'])
     expect(pairEvents(rows, null, 'd')).toHaveLength(3)
     expect(drillEvents(rows, { kind: 'pair', thrower: 'a', receiver: null, outcome: 'completion', conn: { opponent: 'Alpha', line: [] } })).toHaveLength(3)
+  })
+
+  it('excludes throwers, receivers or players entirely, in every view and drill-down', () => {
+    const rows = buildGameRows(data(), F())
+    const ex = (f: object) => connRows(rows, { opponent: '', line: [], ...f })
+    expect(cells(passMatrix(ex({ exReceivers: ['d'] })))).toEqual(['a>b 2/2', 'b>c 1/1'])
+    expect(cells(passMatrix(ex({ exThrowers: ['b'] })))).toEqual(['a>b 2/2', 'a>d 1/2'])
+    expect(cells(passMatrix(ex({ exPlayers: ['b'] })))).toEqual(['a>d 1/2'])
+    // By gender (a, d = W; b, c = M): W→W without receiver d is empty; the other cells are untouched.
+    const g = genderSplit(passMatrix(ex({ exReceivers: ['d'] })), (id) => (id === 'a' || id === 'd' ? 'W' : 'M'))
+    expect(g.map((c) => [c.key, c.completions, c.attempts])).toEqual([['WW', 0, 0], ['WM', 2, 2], ['MW', 0, 0], ['MM', 1, 1]])
+    expect(topConnections(passMatrix(ex({ exThrowers: ['a'] }))).map((p) => `${p.thrower}>${p.receiver}`)).toEqual(['b>c'])
+    // Non-pair events stay (only throws between excluded players are dropped).
+    expect(ex({ exPlayers: ['d'] })[0].events.some((e) => e.type === 'pull')).toBe(true)
+    expect(drillEvents(rows, { kind: 'pair', thrower: 'a', receiver: null, conn: { opponent: '', line: [], exReceivers: ['d'] } })).toHaveLength(2)
+  })
+
+  it('card settings round-trip through the link; junk falls back to defaults', () => {
+    expect(connStateToQuery(DEFAULT_CONN_STATE)).toBe('')
+    const st = { ...DEFAULT_CONN_STATE, view: 'gender' as const, metric: 'pct' as const, min: 3, opponent: 'Alpha', line: ['a'], exReceivers: ['d', 'k'], exThrowers: ['b'], exPlayers: ['c'] }
+    const q = connStateToQuery(st)
+    expect(q).toBe('cv=gender&cm=pct&co=Alpha&cl=a&cmin=3&cxt=b&cxr=d%2Ck&cxp=c')
+    expect(parseConnState(q)).toEqual(st)
+    expect(parseConnState('cv=bogus&cm=x&cmin=-2&cxr=,d,,d')).toEqual({ ...DEFAULT_CONN_STATE, exReceivers: ['d'] })
+    const name = (id: string) => ({ d: 'Kit', b: 'Sam', c: 'Ana' })[id] ?? id
+    expect(exclusionNote({ opponent: '', line: [], exReceivers: ['d'] }, name)).toBe('Excluding receivers: Kit')
+    expect(exclusionNote(st, name)).toBe('Excluding throwers: Sam · Excluding receivers: Kit, k · Excluding entirely: Ana')
+    expect(exclusionNote(DEFAULT_CONN_STATE, name)).toBe('')
   })
 })

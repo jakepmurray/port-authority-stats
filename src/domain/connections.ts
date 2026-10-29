@@ -23,19 +23,93 @@ export interface ConnFilter {
   opponent: string
   /** Only points that started with all of these players on the line. */
   line: string[]
+  /** Leave out throws by these players (they still count as receivers). */
+  exThrowers?: string[]
+  /** Leave out throws to these players (they still count as throwers). */
+  exReceivers?: string[]
+  /** Leave out these players entirely: throws by them and to them. */
+  exPlayers?: string[]
 }
-export const DEFAULT_CONN: ConnFilter = { opponent: '', line: [] }
+export const DEFAULT_CONN: ConnFilter = { opponent: '', line: [], exThrowers: [], exReceivers: [], exPlayers: [] }
 
-/** The rows narrowed to an opponent and to points with the chosen players on the line. */
+/** Is this pair left out by the filter's exclusions? */
+export function excluded(f: ConnFilter, thrower: string, receiver: string): boolean {
+  const all = f.exPlayers ?? []
+  return (f.exThrowers ?? []).includes(thrower) || (f.exReceivers ?? []).includes(receiver) || all.includes(thrower) || all.includes(receiver)
+}
+
+const hasExclusions = (f: ConnFilter) => !!(f.exThrowers?.length || f.exReceivers?.length || f.exPlayers?.length)
+
+/**
+ * The rows narrowed to an opponent, to points with the chosen players on the line, and
+ * without the excluded throwers' / receivers' throws (so every view, metric and drill-down agrees).
+ */
 export function connRows(rows: GameRow[], f: ConnFilter): GameRow[] {
+  const ex = hasExclusions(f)
   return rows
     .filter((r) => !f.opponent || r.game.opponent.trim().toLowerCase() === f.opponent.trim().toLowerCase())
     .map((r) => {
-      if (!f.line.length) return r
-      const pts = r.points.filter((p) => f.line.every((id) => p.line.includes(id)))
+      if (!f.line.length && !ex) return r
+      const pts = f.line.length ? r.points.filter((p) => f.line.every((id) => p.line.includes(id))) : r.points
       const ids = new Set(pts.map((p) => p.id))
-      return { ...r, points: pts, events: r.events.filter((e) => ids.has(e.point_id)) }
+      const events = r.events.filter((e) => {
+        if (!ids.has(e.point_id)) return false
+        const p = ex ? pairOf(e) : null
+        return !p || !excluded(f, p.thrower, p.receiver)
+      })
+      return { ...r, points: pts, events }
     })
+}
+
+/** The card's own settings, kept in the dashboard link next to the dashboard filters. */
+export type ConnMetric = 'completions' | 'turnovers' | 'pct'
+export type ConnView = 'matrix' | 'top' | 'gender'
+export interface ConnState extends Required<ConnFilter> {
+  view: ConnView
+  metric: ConnMetric
+  min: number
+}
+export const DEFAULT_CONN_STATE: ConnState = { view: 'matrix', metric: 'completions', min: 1, opponent: '', line: [], exThrowers: [], exReceivers: [], exPlayers: [] }
+/** URL params (all start with "c", none clash with the dashboard's t, g, side, src, tags, tm, ts, team_src). */
+export const CONN_KEYS = ['cv', 'cm', 'co', 'cl', 'cmin', 'cxt', 'cxr', 'cxp']
+
+const ids = (v: string | null) => (v ? [...new Set(v.split(',').map((x) => x.trim()).filter(Boolean))] : [])
+
+export function parseConnState(query: string): ConnState {
+  const q = new URLSearchParams(query.replace(/^\?/, ''))
+  const view = q.get('cv')
+  const metric = q.get('cm')
+  const min = Number(q.get('cmin'))
+  return {
+    view: view === 'top' || view === 'gender' ? view : 'matrix',
+    metric: metric === 'turnovers' || metric === 'pct' ? metric : 'completions',
+    min: Number.isInteger(min) && min >= 1 ? Math.min(min, 999) : 1,
+    opponent: q.get('co') ?? '',
+    line: ids(q.get('cl')),
+    exThrowers: ids(q.get('cxt')),
+    exReceivers: ids(q.get('cxr')),
+    exPlayers: ids(q.get('cxp')),
+  }
+}
+
+/** Only non-default values, so the plain dashboard link stays clean. */
+export function connStateToQuery(s: ConnState): string {
+  const q = new URLSearchParams()
+  if (s.view !== 'matrix') q.set('cv', s.view)
+  if (s.metric !== 'completions') q.set('cm', s.metric)
+  if (s.opponent) q.set('co', s.opponent)
+  if (s.line.length) q.set('cl', s.line.join(','))
+  if (s.min !== 1) q.set('cmin', String(s.min))
+  if (s.exThrowers.length) q.set('cxt', s.exThrowers.join(','))
+  if (s.exReceivers.length) q.set('cxr', s.exReceivers.join(','))
+  if (s.exPlayers.length) q.set('cxp', s.exPlayers.join(','))
+  return q.toString()
+}
+
+/** "Excluding receivers: Kit · Excluding throwers: Sam, Ana" (empty when nothing is excluded). */
+export function exclusionNote(f: ConnFilter, name: (id: string) => string): string {
+  const part = (label: string, list: string[] | undefined) => (list?.length ? `${label}: ${list.map(name).join(', ')}` : '')
+  return [part('Excluding throwers', f.exThrowers), part('Excluding receivers', f.exReceivers), part('Excluding entirely', f.exPlayers)].filter(Boolean).join(' · ')
 }
 
 export interface PairStat {

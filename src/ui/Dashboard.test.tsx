@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { db } from '../db/db'
 import { builder } from '../domain/fixtures'
@@ -59,6 +59,62 @@ describe('Dashboard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Matrix' }))
     fireEvent.change(screen.getByLabelText('Min throws'), { target: { value: '2' } })
     expect(screen.queryByRole('button', { name: 'A to B: 1 of 1' })).toBeNull()
+  })
+
+  it('who throws to whom: exclude throwers / receivers / players, shown in a note and kept in the link', async () => {
+    await seed()
+    render(<Dashboard />)
+    await screen.findByTestId('connections')
+    await flush()
+    fireEvent.click(screen.getByRole('button', { name: 'By gender' }))
+    const split = () => screen.getByTestId('gender-split').textContent
+    expect(split()).toMatch(/WMP → MMP2/)
+    // Exclude receiver B: search, pick.
+    const recv = screen.getByLabelText('Exclude receivers')
+    fireEvent.focus(recv)
+    fireEvent.change(recv, { target: { value: 'b' } })
+    fireEvent.click(within(screen.getByRole('listbox', { name: 'Exclude receivers options' })).getByRole('button', { name: '#2 B' }))
+    expect(split()).toMatch(/WMP → MMP1/) // only A → C left
+    expect(split()).toMatch(/MMP → WMP1/)
+    expect(screen.getByTestId('conn-exclusions').textContent).toMatch(/^Excluding receivers: B\./)
+    expect(window.location.hash).toBe('#/dashboard?cv=gender&cxr=b')
+    // Exclude thrower C (by number, Enter picks the first match).
+    const thr = screen.getByLabelText('Exclude throwers')
+    fireEvent.focus(thr)
+    fireEvent.change(thr, { target: { value: '#3' } })
+    fireEvent.keyDown(thr, { key: 'Enter' })
+    expect(split()).toMatch(/MMP → WMP0/)
+    expect(screen.getByTestId('conn-exclusions').textContent).toMatch(/Excluding throwers: C · Excluding receivers: B/)
+    // Every view agrees: the matrix no longer has A → B.
+    fireEvent.click(screen.getByRole('button', { name: 'Matrix' }))
+    expect(screen.queryByRole('button', { name: 'A to B: 1 of 1' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'A to C: 1 of 1' })).toBeTruthy()
+    // A dashboard filter change keeps the card's settings in the link.
+    fireEvent.click(screen.getByRole('button', { name: /wind/ }))
+    await flush()
+    expect(window.location.hash).toBe('#/dashboard?tags=wind&cxt=c&cxr=b')
+    // Chips remove; "exclude entirely" drops both directions.
+    fireEvent.click(screen.getByRole('button', { name: 'Stop excluding B (not receiver)' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Clear exclusions' }))
+    expect(screen.queryByTestId('conn-exclusions')).toBeNull()
+    const any = screen.getByLabelText('Exclude player')
+    fireEvent.focus(any)
+    fireEvent.change(any, { target: { value: 'A' } })
+    fireEvent.keyDown(any, { key: 'Enter' })
+    expect(screen.getByText('No throws with both thrower and receiver in view.')).toBeTruthy() // every pair involves A
+  })
+
+  it('who throws to whom: opens with the settings from a shared link', async () => {
+    await seed()
+    window.location.hash = '#/dashboard?cv=gender&cm=pct&cmin=1&co=Alpha&cxr=b'
+    render(<Dashboard />)
+    await screen.findByTestId('connections')
+    await flush()
+    expect(screen.getByRole('button', { name: 'By gender' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Comp %' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByLabelText('Opponent')).toHaveProperty('value', 'Alpha')
+    expect(screen.getByTestId('conn-exclusions').textContent).toMatch(/Excluding receivers: B/)
+    expect(screen.getByTestId('gender-split').textContent).toMatch(/WMP → MMP1/)
   })
 
   it('hold/break vs opponent rank: asks for ranks, then plots ranked games', async () => {

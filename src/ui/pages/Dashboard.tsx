@@ -11,6 +11,7 @@ import { DrillPanel } from '../dashboard/Drill'
 import { Filters } from '../dashboard/Filters'
 import { Heatmap, KpiCard, PlayerScatter, RankChart, RatioChart, StackedBars, TrendChart, type ScatterMode } from '../dashboard/Charts'
 import { rankLookup } from '../../domain/opponents'
+import { CONN_KEYS } from '../../domain/connections'
 import { ConnectionsCard } from '../dashboard/Connections'
 import { Leaderboard } from '../dashboard/Leaderboard'
 import { usePlayers } from '../hooks'
@@ -31,7 +32,10 @@ function useHashFilter(): [DashFilter, (f: DashFilter) => void] {
   }, [])
   const set = (nf: DashFilter) => {
     setF(nf)
-    const q = [filterToQuery(nf), src ? `team_src=${encodeURIComponent(src)}` : ''].filter(Boolean).join('&')
+    // The Who throws to whom card keeps its own settings in the link too: leave them as they are.
+    const card = new URLSearchParams()
+    new URLSearchParams(window.location.hash.split('?')[1] ?? '').forEach((v, k) => CONN_KEYS.includes(k) && card.append(k, v))
+    const q = [filterToQuery(nf), card.toString(), src ? `team_src=${encodeURIComponent(src)}` : ''].filter(Boolean).join('&')
     history.replaceState(null, '', `#/${base}dashboard${q ? `?${q}` : ''}`)
   }
   return [f, set]

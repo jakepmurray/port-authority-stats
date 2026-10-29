@@ -77,7 +77,12 @@ Paste a YouTube link, watch the game beside a stat panel, and every stat you ent
     lines with a "per 10 places" summary; games without a rank are counted and left out);
   - **who throws to whom:** a thrower × receiver matrix (most-used first) shaded by completions, turnovers on that pair,
     or completion %; plus *Top pairs* and *By gender* (WMP → MMP etc.). Its own filters: opponent, players on the line
-    (points that started with them) and a minimum number of throws. Tap a cell, or a name for the whole row/column, to list
+    (points that started with them), a minimum number of throws, and player exclusions: **Exclude throwers**,
+    **Exclude receivers** and **Exclude player** (both ends) are searchable (type a name or #number, tap to add; tap a
+    chip to remove). For example *By gender* with receiver Kit excluded shows MMP → WMP throws that didn't go to Kit.
+    A note above the chart lists what's excluded, and every view, metric and drill-down leaves those throws out. The
+    card's settings (view, metric, opponent, line, minimum, exclusions) are saved in the link, so *Copy link* shares
+    them, in the team view too. Tap a cell, or a name for the whole row/column, to list
     those throws with ▶ film links. On a phone it shows the top 8 throwers and receivers (*Show everyone* for the rest)
     and scrolls sideways;
   - turnovers by type, stacked by tag (ours or theirs);
@@ -98,8 +103,8 @@ Paste a YouTube link, watch the game beside a stat panel, and every stat you ent
   - Imported games have no gender ratio, so they are left out of the ratio chart.
   - Points missed on film count for the score but add no plays.
   - Who throws to whom: a throwaway counts for a pair only when the intended receiver was recorded (drops always have
-    one); the line filter uses the line that started the point (mid-point subs aren't followed); its opponent, line and
-    minimum settings are not saved in the link.
+    one); the line filter uses the line that started the point (mid-point subs aren't followed); excluded players are saved in
+    the link by player id, so a link only works with the same team data (the app or that team's team view).
 
 ## Stat tables: tag filters and opponent ranks
 

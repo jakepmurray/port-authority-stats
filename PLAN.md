@@ -223,10 +223,11 @@ PocketBase is dropped because the Sheet covers sharing.
   - Dashboard: hold % / break % vs rank scatter with optional least-squares trend lines; all dashboard filters apply.
 - **Who throws to whom:** thrower × receiver matrix (by volume) of completions (catch, goal), pair turnovers (drop,
   throwaway with an intended receiver), or completion %; drill-down to the throws with film links; top pairs; WMP/MMP
-  split; card filters: opponent, players on the starting line, min throws; top 8 on phones.
+  split; card filters: opponent, players on the starting line, min throws, excluded throwers / receivers / players
+  (searchable chips, an "Excluding …" note); all card settings in the link (cv, cm, co, cl, cmin, cxt, cxr, cxp); top 8 on phones.
 - **Limits:** client clocks decide rank edits; ranks match our opponent names exactly after normalizing, so renaming an
   opponent on a game needs its rank re-entered; the USAU page layout may change (the parser is tolerant but untested
-  against every variant); the connections card's own filters are not in the link.
+  against every variant).
 
 ## 12. Built (2026-10-29): Fetch ranks from USAU (script version 6)
 
