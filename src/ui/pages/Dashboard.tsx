@@ -11,6 +11,7 @@ import { DrillPanel } from '../dashboard/Drill'
 import { Filters } from '../dashboard/Filters'
 import { Heatmap, KpiCard, PlayerScatter, RankChart, RatioChart, StackedBars, TrendChart, type ScatterMode } from '../dashboard/Charts'
 import { rankLookup } from '../../domain/opponents'
+import { ConnectionsCard } from '../dashboard/Connections'
 import { Leaderboard } from '../dashboard/Leaderboard'
 import { usePlayers } from '../hooks'
 import { useView } from '../view'
@@ -55,6 +56,7 @@ function drillTitle(d: Drill, byName: (id: string) => string, gameName: (id: str
   if (d.kind === 'turnover') return `${d.team === 'us' ? 'Our' : 'Their'} turnovers${d.turn ? ` · ${TURN_LABEL[d.turn]}` : ''}${d.tag ? ` · ${d.tag}` : ''}`
   if (d.kind === 'call') return `${d.team === 'us' ? 'Our' : 'Their'} calls${d.callKind ? ` · ${CALL_KIND_LABEL[d.callKind as CallKind] ?? d.callKind}` : ''}${d.outcome ? ` · ${CALL_OUTCOME_LABEL[d.outcome as CallOutcome] ?? d.outcome}` : ''}`
   if (d.kind === 'player') return `${byName(d.id)} · plays`
+  if (d.kind === 'pair') return `${d.thrower ? byName(d.thrower) : 'Anyone'} → ${d.receiver ? byName(d.receiver) : 'anyone'} · ${d.outcome === 'completion' ? 'completions' : d.outcome === 'turnover' ? 'turnovers' : 'all throws'}`
   return `Goals · ${gameName(d.id)}${d.side ? ` · ${d.side}-line points` : ''}`
 }
 
@@ -263,6 +265,14 @@ export function Dashboard() {
               {!v.leaders.length ? <Empty>No player stats in view (imported games only track names that match the roster).</Empty> : (
                 <Leaderboard rows={v.leaders} byId={byId} minPoints={minPoints} setMinPoints={setMinPoints} onPick={(id) => open({ kind: 'player', id })} />
               )}
+            </Card>
+
+            <Card title="Who throws to whom" className="lg:col-span-2">
+              <ConnectionsCard rows={rows} byId={byId} onPick={open} />
+              <Hint>
+                Rows are throwers, columns receivers, most-used first. Completions = catches and goals; turnovers = drops, and throwaways where the intended
+                receiver was recorded. Tap a cell (or a name) for those throws and jump to the film. The filters above (games, O/D points, tags) apply.
+              </Hint>
             </Card>
 
             <Card

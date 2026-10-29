@@ -139,6 +139,8 @@ describe('team view (read only)', () => {
     await screen.findByTestId('kpis', {}, { timeout: 3000 })
     await flush()
     expect(screen.getByTestId('kpi-record').textContent).toContain('1–0')
+    expect(screen.getByRole('button', { name: /^A to B: 2 of 2/ })).toBeTruthy() // who throws to whom works read-only
+    expect(screen.getByTestId('rank-chart')).toBeTruthy()
     act(() => screen.getByRole('button', { name: /wind/ }).click())
     await flush()
     // the shared dashboard link keeps the source, so it opens for a teammate who never visited

@@ -37,6 +37,30 @@ beforeEach(async () => {
 afterEach(cleanup)
 
 describe('Dashboard', () => {
+  it('who throws to whom: matrix, drill into a pair, top pairs and the gender split', async () => {
+    await seed()
+    render(<Dashboard />)
+    await screen.findByTestId('connections')
+    await flush()
+    const matrix = screen.getByTestId('pass-matrix')
+    expect(matrix.textContent).toMatch(/#1 A/)
+    fireEvent.click(screen.getByRole('button', { name: 'A to B: 1 of 1' }))
+    await flush()
+    expect(screen.getByTestId('drill-title').textContent).toBe('A → B · completions · 1 event')
+    fireEvent.click(screen.getByRole('button', { name: 'Comp %' }))
+    expect(screen.getByRole('button', { name: 'A to C: 1 of 1' }).textContent).toBe('100%')
+    fireEvent.click(screen.getByRole('button', { name: 'Top pairs' }))
+    expect(screen.getByTestId('top-connections').textContent).toMatch(/A → B1\/1100%/)
+    fireEvent.click(screen.getByRole('button', { name: 'By gender' }))
+    const split = screen.getByTestId('gender-split')
+    expect(split.textContent).toMatch(/WMP → MMP2/) // A (W) to B and C (M)
+    expect(split.textContent).toMatch(/MMP → WMP1/)
+    // Min throws hides pairs below it.
+    fireEvent.click(screen.getByRole('button', { name: 'Matrix' }))
+    fireEvent.change(screen.getByLabelText('Min throws'), { target: { value: '2' } })
+    expect(screen.queryByRole('button', { name: 'A to B: 1 of 1' })).toBeNull()
+  })
+
   it('hold/break vs opponent rank: asks for ranks, then plots ranked games', async () => {
     await seed()
     render(<Dashboard />)

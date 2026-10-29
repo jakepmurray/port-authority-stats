@@ -2,6 +2,7 @@ import { liveOnly, other } from './game'
 import type { Game, GameEvent, Opponent, Point, Ratio, TeamSide } from './schema'
 import { computeGameStats, sumPlayerStats, type GameStats, type PlayerStats } from './stats'
 import { userTags } from './tags'
+import { connRows, pairEvents, type ConnFilter, type PairOutcome } from './connections'
 
 /**
  * Season dashboard: filters plus aggregations, all pure functions over the event log.
@@ -462,6 +463,8 @@ export type Drill =
   | { kind: 'call'; team: TeamSide; callKind?: string; outcome?: string }
   | { kind: 'player'; id: string }
   | { kind: 'game'; id: string; side?: 'O' | 'D' }
+  /** Who throws to whom: one matrix cell (or a thrower row / receiver column when one side is null). */
+  | { kind: 'pair'; thrower: string | null; receiver: string | null; outcome?: PairOutcome; conn: ConnFilter }
 
 export interface DrillRow {
   event: GameEvent
@@ -472,6 +475,7 @@ export interface DrillRow {
 const involves = (e: GameEvent, id: string) => e.actor_id === id || e.receiver_id === id || e.defender_id === id || e.call?.charged_id === id
 
 export function drillEvents(rows: GameRow[], d: Drill): DrillRow[] {
+  if (d.kind === 'pair') return pairEvents(connRows(rows, d.conn), d.thrower, d.receiver, d.outcome)
   const out: DrillRow[] = []
   for (const r of rows) {
     if (d.kind === 'game' && r.game.id !== d.id) continue
