@@ -107,7 +107,9 @@ The app pushes your stats to a Google Sheet you own, through a small Apps Script
 - **Security:** a shared token. The script keeps it in Script Properties and rejects requests without it; the app keeps it
   in this browser only (Settings, a password field). It is never in the repo, the URL or logs. Treat it as a light lock,
   not strong security: the data is non-sensitive stats. "Publish to web" makes **Player Stats**, **Game Stats** and
-  **Events** readable by anyone with the link; **Players**, **Games** and **Points** stay unpublished.
+  **Events** readable by anyone with the link; **Players**, **Games** and **Points** stay unpublished. With script
+  version 3, anyone who has the Web app URL can also *read* the team-view snapshot (all games, points, events and
+  player names), but never write.
 - **CORS:** the app sends a plain `POST` with `Content-Type: text/plain` (JSON in the body), so the browser sends no
   preflight (Apps Script can't answer one). Apps Script replies with a redirect to `script.googleusercontent.com`, which
   `fetch` follows.
@@ -132,6 +134,32 @@ The app pushes your stats to a Google Sheet you own, through a small Apps Script
 4. Don’t use Deploy > New deployment for updates: that creates a new URL.
 
 Script version 2 (October 2026) adds the `game_clock` and `ended_at` columns to the Games tab. The new script adds them to an existing Sheet on the next sync, and *Test connection* says when the script is older than the app. The **Game Stats** `result` column (W / L / T / in progress) uses the manual end.
+
+Script version 3 (October 2026) adds the read-only team view (below). After updating, click *Push everything* once.
+
+### Team view (read-only link for teammates)
+
+Teammates can open your games, game stats and season dashboard in the app itself, without your data in their browser
+and without the token:
+
+```
+https://jakepmurray.github.io/port-authority-stats/#/team?src=<the Web app /exec URL, URL-encoded>
+```
+
+*Settings > Team view link > Copy team view link* builds it for you. The address is remembered, so later visits to
+`#/team` work without it; dashboard links shared from the team view carry it as `team_src=` (on the dashboard `src=`
+is already the film/live/import filter). Only a `script.google.com/macros/s/…/exec` address is accepted.
+
+- Every push also stores a snapshot of the app's data (teams, players, games, points, events; deleted games, points and
+  events left out; deleted players kept, marked deleted, because old games name them) in a hidden **_Snapshot** tab, as
+  JSON split into 45,000-character chunks (a cell holds at most 50,000). *Push everything* rewrites it completely.
+- The team view loads it with a plain `GET /exec?action=snapshot` (no token, no custom headers, so no CORS preflight)
+  into its **own** IndexedDB database (`port-authority-stats-team-view`) that refuses every write. The visitor's own
+  games and sync settings are never touched, and the team view never syncs.
+- A banner shows *Team view — read only, updated <time>* and a Refresh button. If the script is older, has no snapshot
+  yet, or the network is down, it says so in plain words and keeps showing the last copy it loaded.
+- Only the browser that has the token can write. If the token was ever shared, run `rotateToken()` in the Apps Script
+  editor and paste the new token into Settings on your own device only.
 
 ## Import from UltiAnalytics
 

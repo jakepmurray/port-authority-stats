@@ -2,6 +2,7 @@
 *For Jacob Murray · v2.1, approved 2026-10-20 · Free/OSS only · All decisions locked (§9)*
 *Repo: [jakepmurray/port-authority-stats](https://github.com/jakepmurray/port-authority-stats) (MIT) · App: https://jakepmurray.github.io/port-authority-stats/*
 *Status (2026-10-21): Phase 0 scaffold and Phase 1 film-entry MVP live; Phase 2 Google Sheet sync built (Apps Script in `apps-script/`, set up under Settings); import from UltiAnalytics (CSV or public team link, Data page). Live sideline entry is next.*
+*Update (2026-10-29): season Dashboard live; read-only **team view** (`#/team?src=<web app URL>`, script v3) lets teammates browse games, stats and the dashboard from Jacob's last push.*
 
 ## 1. Goal
 A free, open-source stat app for Port Authority (Mixed) that you use **while watching game film**.
@@ -15,7 +16,7 @@ A free, open-source stat app for Port Authority (Mixed) that you use **while wat
 | Who | When | Mode |
 |---|---|---|
 | Jacob (primary) | After games, on a desktop or laptop (often with two screens) | Film entry: YouTube embed plus stat panel, or a stats-only layout |
-| Teammates | Any time | Read-only Google Sheet published to the web |
+| Teammates | Any time | Read-only team view link in the app (games, stats, dashboard), plus the Sheet published to the web |
 | Sideline stat-keeper | Live, Phase 2 | Fast tap entry on an Android phone, offline |
 
 ## 3. What exists (brief)
@@ -123,6 +124,7 @@ PocketBase is dropped because the Sheet covers sharing.
 4. The stats tabs are computed by the PWA and pushed as snapshots, so the app stays the single source of truth.
 5. **File → Share → Publish to web** publishes only the `Player Stats`, `Game Stats` and `Events` tabs as the read-only link for teammates.
 6. Treat the token as obscurity, not real security. Accepted risk: the data is non-sensitive stats.
+7. **Team view (script v3):** each push also stores a JSON snapshot of the domain rows (deleted games/points/events left out) in a hidden `_Snapshot` tab, chunked under the 50k-char cell limit; *Push everything* rewrites it. `doGet(?action=snapshot)` serves it with no token. The app's `#/team?src=<encoded /exec URL>` route loads it into a separate read-only IndexedDB (`port-authority-stats-team-view`), never mixing with the visitor's data; no editing or sync there. Jacob's browser (with the token) stays the only writer.
 
 **Private sheet (optional, later):** Google Identity Services sign-in, and the PWA calls the Sheets API directly with the `drive.file` scope (free). The Sheet is shared only with the team. Apps Script is no longer needed.
 
