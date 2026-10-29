@@ -104,12 +104,13 @@ The app pushes your stats to a Google Sheet you own, through a small Apps Script
 - **How rows are written:** Players and Games are upserted by id; each changed game's Points, Events, Player Stats and Game
   Stats rows are replaced with the app's current snapshot. Pushing twice gives the same Sheet. Deleted records disappear.
   The app is the source of truth: edits typed into the Sheet are overwritten.
-- **Security:** a shared token. The script keeps it in Script Properties and rejects requests without it; the app keeps it
-  in this browser only (Settings, a password field). It is never in the repo, the URL or logs. Treat it as a light lock,
-  not strong security: the data is non-sensitive stats. "Publish to web" makes **Player Stats**, **Game Stats** and
-  **Events** readable by anyone with the link; **Players**, **Games** and **Points** stay unpublished. With script
-  version 3, anyone who has the Web app URL can also *read* the team-view snapshot (all games, points, events and
-  player names), but never write.
+- **Security:** one key per person (script version 4). Jacob's key is the **admin** key; each trusted stat-taker gets
+  their own (see *Stat-takers* below). The script stores only a SHA-256 hash of each key in Script Properties and
+  rejects requests without a valid one; the app keeps your key in this browser only (Settings > *Your key*, a password
+  field). Keys are never in the repo, the URL or logs. Treat this as a light lock, not strong security: the data is
+  non-sensitive stats. "Publish to web" makes **Player Stats**, **Game Stats** and **Events** readable by anyone with the
+  link; **Players**, **Games** and **Points** stay unpublished. Anyone who has the Web app URL can also *read* the
+  team-view snapshot (all games, points, events and player names), but never write.
 - **CORS:** the app sends a plain `POST` with `Content-Type: text/plain` (JSON in the body), so the browser sends no
   preflight (Apps Script can't answer one). Apps Script replies with a redirect to `script.googleusercontent.com`, which
   `fetch` follows.
@@ -120,11 +121,11 @@ The app pushes your stats to a Google Sheet you own, through a small Apps Script
 2. In the Sheet, click Extensions > Apps Script.
 3. Delete the sample code in Code.gs, paste in all of apps-script/Code.gs from the repo (on GitHub, use the “Copy raw file” button), and click Save (the disk icon).
 4. In the function menu at the top, pick setup and click Run. When Google asks, click Review permissions and pick your account. If you see "Google hasn’t verified this app", click Advanced > Go to (your project name) (unsafe), then Allow. It is your own script.
-5. The Execution log at the bottom shows your sync token (a long string of letters and numbers). Copy it now; it is shown only once. If you lose it, run rotateToken the same way.
+5. The Execution log at the bottom shows your admin key (a long string of letters and numbers). Copy it now; it is shown only once. If you lose it, run rotateToken the same way.
 6. Click Deploy > New deployment. Click the gear next to "Select type" and choose Web app. Set Execute as: Me and Who has access: Anyone. Click Deploy and authorize again if asked.
 7. Copy the Web app URL. It ends in /exec.
 8. Back in the Sheet, click File > Share > Publish to web. Open "Published content and settings", untick "Entire document", tick only Player Stats, Game Stats and Events, then click Publish and OK. Anyone with that link can read those three tabs; Players, Games, Points and Meta stay private.
-9. In this app, open Settings, paste the URL and the token, click Save, then click Test connection. It should say "Connected". Then click Sync now.
+9. In this app, open Settings, paste the URL and the key into Your key, click Save, then click Test connection. It should say "Connected as admin". Then click Sync now.
 
 ### After a script update (same URL)
 
@@ -137,10 +138,59 @@ Script version 2 (October 2026) adds the `game_clock` and `ended_at` columns to 
 
 Script version 3 (October 2026) adds the read-only team view (below). After updating, click *Push everything* once.
 
+Script version 4 (October 2026) adds stat-takers with their own keys, game ownership and the audit log (below). Your old
+token keeps working as the admin key.
+
+### Stat-takers (script version 4)
+
+Trusted teammates can add and edit stats from their own phones with their own keys. Each game has an **owner**; only the
+owner can change it, so nobody overwrites anyone else. The roster is shared.
+
+**Jacob, once:**
+
+1. Paste the new Code.gs over the old one, click Save, then Deploy > Manage deployments > Edit (pencil) > Version: **New
+   version** > Deploy. The /exec URL stays the same.
+2. In the app, Settings > *Test connection*. It should say **Connected as admin**. (Your existing token is now your admin
+   key; nothing to change in the app.)
+3. Reload the Google Sheet. A **Port Authority Stats** menu appears. Pick *Set admin name…* and type your name (this is
+   what stat-takers see as the owner of your games). The first time, Google asks for permission again; allow it.
+4. In the app, click *Push everything* once. Every existing game becomes yours (owner: admin).
+
+**Adding a stat-taker:**
+
+5. In the Sheet, *Port Authority Stats > Add stat-taker…*, type their name, OK. A dialog shows their key **once**.
+   Copy it and **send it to that person yourself, privately** (a direct message, not a group chat). If you lose it,
+   revoke and add them again. (Editor alternative: run `addStatTaker('Name')`; the key is in the Execution log.)
+
+**The stat-taker, on their phone (one key works on all their devices):**
+
+6. Open https://jakepmurray.github.io/port-authority-stats/ (add it to the home screen), go to Settings.
+7. Paste the Web app URL (Jacob sends it) and their key into *Your key*, click Save, then *Test connection*. It should say
+   **Connected as stat-taker (their name)**.
+8. Click *Pull now*. Everyone's games and the shared roster appear. Games show a badge: **You**, **Unowned**, or
+   **🔒 Name**. Locked games open read-only.
+9. Create a new game (it becomes theirs on the first sync), or *Claim* an unowned one on the Games list.
+
+**Rules**
+
+- The owner (or Jacob) can *Release* a game; anyone can *Claim* an unowned game; only Jacob can *Reassign* a game or
+  take one from someone. Ownership never expires. Rules apply to Jacob too: his *Push everything* never overwrites a
+  stat-taker's game.
+- Everyone can add, edit and delete players. Deletes are soft: old games still show the name, and adding the same name or
+  number again offers *Restore*. Adding a name that already exists asks first.
+- If a game changed somewhere else (the same person on another device, or a reassign), the change is held and Settings
+  shows **Not saved: N games** with *Pull and retry*, *Claim and retry* or *Discard my changes*. Nothing is lost silently.
+- Every row carries `edited_by` (who last pushed it). A hidden **_Audit** tab logs every push, claim, release, reassign
+  and revoke (last 5,000 rows); a hidden **_Games** tab holds owners and revisions. Don't edit those by hand.
+
+**Removing someone:** *Port Authority Stats > Revoke stat-taker…* (it lists names and ids; type the id, e.g. `st_…`), or
+run `listStatTakers()` then `revokeStatTaker('st_…')` in the editor. Their key stops working on all devices at once and
+their games become unowned (claim them back if needed). What they already pushed stays.
+
 ### Team view (read-only link for teammates)
 
 Teammates can open your games, game stats and season dashboard in the app itself, without your data in their browser
-and without the token:
+and without any key:
 
 ```
 https://jakepmurray.github.io/port-authority-stats/#/team?src=<the Web app /exec URL, URL-encoded>
@@ -158,8 +208,9 @@ is already the film/live/import filter). Only a `script.google.com/macros/s/…/
   games and sync settings are never touched, and the team view never syncs.
 - A banner shows *Team view — read only, updated <time>* and a Refresh button. If the script is older, has no snapshot
   yet, or the network is down, it says so in plain words and keeps showing the last copy it loaded.
-- Only the browser that has the token can write. If the token was ever shared, run `rotateToken()` in the Apps Script
-  editor and paste the new token into Settings on your own device only.
+- Only people with a key can write. If your admin key (the old token) was ever shared, run `rotateToken()` in the Apps
+  Script editor and paste the new key into Settings on your own devices only. Give teammates their own stat-taker keys
+  instead.
 
 ## Import from UltiAnalytics
 

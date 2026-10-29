@@ -149,117 +149,58 @@ PocketBase is dropped because the Sheet covers sharing.
 7. **Film CV:** local Python helper.
 8. **Builder:** a dedicated builder bot, public MIT-licensed GitHub repo.
 
-## 10. DRAFT (not approved, not built): trusted stat-takers with their own keys
-*Drafted 2026-10-29 for Jacob's review. Nothing here is built yet.*
+## 10. APPROVED and built (2026-10-29): trusted stat-takers with their own keys
+*Drafted 2026-10-29 (commit 2a2b581); Jacob approved it the same day with the answers below. Built in script version 4.*
 
-**Goal:** a few trusted people can add and edit stats from their own devices with their own keys. Jacob stays admin, the team view stays as it is, and two people never overwrite each other's work.
+**Jacob's answers**
+1. **Stat-takers can delete players too**, not only Jacob. Deletes stay **soft**: the player keeps a `deleted` flag, old games still show the name, and the player can be restored (Roster offers it when someone re-adds the same name or number). `edited_by` records who pushed the change. Merging duplicates stays admin-only (not built; not trivial).
+2. **Stat-takers can claim unowned games; only Jacob can reassign or take one away.** Ownership never expires.
+3. **One key per person**, used on all their devices. The rev check stops two devices overwriting each other; revoking the key cuts off all of them.
+
+**Goal:** a few trusted people add and edit stats from their own devices with their own keys. Jacob stays admin, the team view keeps working, and nobody overwrites anyone else's work.
 
 **Keys and roles (Apps Script v4)**
-- Run from the editor, so keys never pass through the app, chat or git:
-  - `addStatTaker('Sam')` prints a new random key **once** in the Execution log.
-  - `listStatTakers()` shows names, ids, created and last-used times, and revoked status. It never shows keys.
-  - `revokeStatTaker('<id>')` and `rotateAdminKey()`.
-- Only a SHA-256 hash of each key is stored, in Script Properties (`PA_KEY_<id>` = `{name, hash, created_at, revoked}`). Keys are 256-bit random, so no salt is needed.
-- The existing `PA_TOKEN` becomes the **admin key**, so Jacob's device keeps working.
-- Every POST is matched to a person: `admin`, or a stat-taker with an id and name. `ping` returns `{role, name, id}` and the app shows it in Settings.
-- A revoked key gets `revoked_key` and can never write again.
+- Keys are made in Google, never in the app, chat or git. In the Sheet, the menu **Port Authority Stats** has *Add stat-taker…* (shows the new key **once** in a dialog), *List stat-takers* (names, ids, created/last used, revoked; never keys), *Revoke stat-taker…* and *Set admin name…*. The same functions can be run in the editor: `addStatTaker('Sam')` (key printed once in the Execution log), `listStatTakers()`, `revokeStatTaker('st_…')`, `setAdminName('Jacob')`, `rotateAdminKey()` (= `rotateToken()`).
+- Only SHA-256 hashes are stored, in Script Properties: `PA_ADMIN_HASH`, and `PA_KEY_<id>` = `{name, hash, created_at, last_used, revoked, revoked_at}`. Keys are 256-bit random, so no salt.
+- Jacob's existing token **is** the admin key: on its first use the plain `PA_TOKEN` is replaced by its hash.
+- Every POST is matched to a person (`admin`, or a stat-taker id and name). `ping` returns `who`; Settings shows "Connected as admin (Jacob)" or "as stat-taker (Sam)". Revoked keys get `revoked_key`. Revoking also releases that person's games.
 
-**Who owns what**
-- The server keeps a game registry in a hidden `_Games` tab: `game_id, owner_id, rev, updated_by, updated_at`.
-  - A game's first push makes the pusher its owner.
-  - The owner can **release** it. Anyone can **claim** an unowned game. Admin can **reassign** or force-claim any game.
-- The server rejects game pushes (Games row, per-game tabs, snapshot entry) from anyone but the owner: `not_owner`, naming the owner.
-- **Stale edits:** each game has a `rev` that goes up on every accepted push. The app sends the `base_rev` it last pulled or pushed. If the server is newer, the push is rejected (`stale`). This covers one person on two devices, or a reassign. The app then offers *Pull and retry*: the server copy loads, then the app re-applies the local queued changes for games the person still owns.
-  - Within an owned, up-to-date game, the app's copy replaces the server's, same as today.
-- **Players are shared:**
-  - Upsert by id, newest `updated_at` wins. Client clocks decide ties, which is acceptable for names and numbers.
-  - Stat-takers can add players and edit them. Deleting players is up to Jacob (question 1).
-  - No duplicate players:
-    - Roster import already matches existing players.
-    - Adding a player whose normalized name **or** jersey number matches a live player asks "use #7 Ava?" first.
-    - The server logs suspected duplicates in the audit log rather than rejecting them, because rejecting would strand events that reference the player.
-- **Team settings** (custom tags) can only be changed by admin.
-- **Stats after a name change:** when a player's name changes, the stats rows of games the editor doesn't own refresh on the owner's next push, or when admin clicks *Push everything*.
+**Ownership and stale edits**
+- Hidden `_Games` registry: `game_id, owner_id, owner_name, rev, updated_by, updated_at, deleted`.
+- A new game's first push makes the pusher its owner. The owner (or admin) can **release**; anyone can **claim** an unowned game; only admin can **reassign** or claim a game someone holds.
+- Ownership applies to admin too, so Jacob's *Push everything* can never overwrite a stat-taker's game. A game nobody owns must be claimed first (`unowned`), even by admin.
+- Each accepted push bumps the game's `rev`. The app sends the rev it last saw (`games_base`); an older one is rejected as `stale`.
+- Rejections are per game: the rest of the push still goes through. The app keeps the held changes, marks them as conflicts (not counted as pending) and offers *Pull and retry*, *Claim and retry* or *Discard my changes*.
+- Games owned by someone else open read-only (the team-view screen) with a lock banner.
 
-**Pull (stat-takers and admin)**
-- `POST {action:'pull', key}`, or the existing public snapshot, plus the registry.
-- Merged into the person's **real** local database by id:
-  - Games they don't own: the server copy always wins.
-  - Their own games: queued local changes win.
-  - Players: newest `updated_at` wins.
-- Pulled rows are **not** queued for pushing back.
-- A new local table `remote` (Dexie v3) caches `game_id → owner, rev`, outside the game rows, so ownership can't be edited by hand.
-- Games owned by others open read-only, with a *Request / Claim* hint.
-- There is a Pull button, and the app pulls automatically on start and before claiming.
+**Shared roster and teams**
+- Players are upserted by id; the newer `updated_at` wins (client clocks). Deletes are soft. The app asks before adding a player whose normalized name matches a live player, and offers to restore a deleted player with the same name or number. The server writes suspected duplicates to the audit log instead of rejecting them.
+- Team settings (custom tags) change only through admin pushes.
 
-**Push changes**
-- A stat-taker's *Push everything* means "all games I own plus players", **never** a full wipe of the snapshot. Only admin's *Push everything* rebuilds the whole `_Snapshot` and Sheet.
-- The snapshot stores players per record (merged), not as one replaced block.
+**Pull**
+- `POST {action:'pull'}` returns the snapshot, the registry and the people list. It merges into the real local database by id: rows with queued local changes stay; otherwise the server copy wins; rows the server no longer has (and no local change) are marked deleted. A local-only team is folded into the shared team. Pulled rows are never queued for pushing back.
+- Dexie v3 adds a `remote` table (`game_id → owner, rev`). The app pulls on start and with *Settings > Pull now*.
+
+**Push**
+- A stat-taker's *Push everything* sends their own games plus players; it never wipes the snapshot. Only admin's full push marks the snapshot as a full rebuild, and even that keeps games it doesn't own.
 
 **Audit**
-- The server stamps `edited_by` (the pusher's name) on Games, Points and Events rows, and in the snapshot.
-- A hidden `_Audit` tab gets one row per accepted push: time, who, game ids, counts, and any rejections.
-- `_Audit` is trimmed to the last 5,000 rows.
-
-**App screens**
-- **Settings:**
-  - "Your key" replaces "Token" and shows the role (admin or stat-taker, with name).
-  - Pull now.
-  - Admin only: a read-only list of stat-takers. Keys are still made and revoked in the editor.
-- **Games list:** ownership badges ("You", "Sam", "Unowned"), plus Claim, Release, and for admin, Reassign.
-- **Conflict messages in plain words:**
-  - "Sam is editing this game. Ask Sam to release it or ask Jacob."
-  - "This game changed on another device. Pull and retry."
-  - "Your key was revoked."
-
-**Limits**
-- **One push at a time:** Apps Script handles pushes one by one (the existing lock). Others wait up to 30 s, then get `busy` and retry with backoff (already built).
-- **Rewrites grow with data:** each push rewrites whole tabs. That's fine for a season, since pushes take under 30 s of the 6-minute limit. Several active stat-takers at once mean more `busy` retries, so stat-takers' sync wait goes from 5 s to 15 s.
-- **Quotas:** a free account gets about 20,000 web-app runs a day and 90 minutes a day of triggers, which aren't used here. Enough.
-- **Offline:** edits queue locally as now. On reconnect, a push to a game the person still owns goes through. If it was reassigned meanwhile, they see a conflict and their copy stays local, with *Export JSON* so Jacob can merge it. Nothing is lost silently.
-- **Security:** keys are still bearer secrets in each person's browser. Reading the snapshot stays public (team view).
+- `edited_by` (the pusher's name) on Players, Games, Points and Events rows. It names the last person who pushed the whole game, not who typed each event.
+- Hidden `_Audit` tab: time, who, action (push, claim, release, reassign, revoke, migrate), games, detail (counts, rejections, possible duplicates). Capped at 5,000 rows.
 
 **Migration**
-- **Script v4:** existing games have no owner. On Jacob's first admin push, they all become **admin-owned** with `rev 1`, and the snapshot is rebuilt.
-- **App:** older app versions with only the admin token keep working. Stat-takers need the new app, which is automatic through the PWA update prompt.
-- **Local database:** Dexie v3 adds the `remote` table. Existing rows are unchanged.
+- Games already in the Sheet (or the v3 snapshot) without a registry entry become admin-owned at rev 1 on the first v4 request, so Jacob's first push goes through without conflicts.
+- Older app versions with the admin token keep working against v4 for pushes; stat-takers need the new app (automatic through the PWA update).
 
-**Tests (Vitest)**
-- **gasMock:**
-  - Key add, list and revoke, and hash-only storage.
-  - Roles from `ping`.
-  - Ownership: first push claims; `not_owner`, `stale`, release, claim, reassign.
-  - A stat-taker's full push doesn't wipe others' games.
-  - Audit rows and `edited_by`.
-  - Revoked keys.
-  - A v3 admin push still works.
-- **Client:**
-  - The merge rules (pulled rows not queued; own queued changes win).
-  - Pull and retry.
-  - Read-only games owned by others.
-  - Duplicate-player prompt.
-- **UI:** badges and conflict messages.
-- **Scenario:** two simulated devices against one mock script.
+**Limits (accepted)**
+- One push at a time (LockService, 30 s wait, then `busy` and retry with backoff). Every push rewrites whole tabs; fine for a season.
+- Free quotas: about 20,000 web-app runs a day.
+- Client clocks decide player name/number edits.
+- When a player is renamed, other owners' Game Stats rows refresh only on their next push.
+- Snapshot reads stay public (team view). Keys are bearer secrets kept in each browser.
+- A conflict on an offline device stays local until that person resolves it.
+- Restoring a soft-deleted player is open to everyone, not only admin.
 
-**Size:** about 7 commits:
-1. Script keys and roles.
-2. Registry, ownership and rev.
-3. Audit.
-4. App role and pull/merge (Dexie v3).
-5. Ownership in push, plus conflict handling.
-6. UI badges, claim and duplicate guard.
-7. Docs.
+**Tests:** `src/sync/keys.test.ts` (keys, menu, migration, ownership, audit, roster), `src/sync/twoDevices.test.ts` (two devices against one mock script), `src/ui/sharing.test.tsx` (badges, conflicts, lock), plus the existing script/client tests updated to version 4.
 
-Roughly 2–3 build sessions.
-
-**Jacob's steps after it's built**
-1. Paste the new Code.gs, then Deploy > Manage deployments > Edit > New version > Deploy (same URL).
-2. In the app, click Test connection (it should say admin), then Push everything once.
-3. For each person, run `addStatTaker('Name')` and copy the key from the Execution log. **Send it to them yourself, privately** (not in a group chat).
-4. They open the app, go to Settings, paste the URL and their key, then Test connection and Pull.
-5. To remove someone, run `revokeStatTaker('<id>')`. Their pending changes are rejected, and nothing they already pushed changes.
-
-**Open questions (recommended answer first)**
-1. *Can stat-takers delete players?* **No.** They can add players and fix names and numbers; only Jacob deletes or merges players.
-2. *Can a stat-taker take a game nobody holds?* **Yes, claim it if it's unowned; only Jacob can take a game from someone.** No automatic expiry.
-3. *One key per person, used on several devices?* **Yes.** The rev check stops two devices from overwriting each other, and revoking one key cuts off all of that person's devices.
+**Jacob's steps** are in the README under *Stat-takers (script version 4)*.
