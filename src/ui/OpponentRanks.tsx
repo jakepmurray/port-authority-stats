@@ -1,12 +1,15 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { actions } from '../db/actions'
 import { matchRanks, normOpp, opponentsOf, parseUsauRankings, seasonsOf, USAU_RANKINGS_URL, type RankMatch, type UsauRank } from '../domain/opponents'
 import type { Game, Opponent } from '../domain/schema'
+import { fetchUsau } from '../sync'
+import { USAU_DIVISIONS, usauFetchMessage, type UsauDivision, type UsauFetch } from '../sync/client'
 import { loadWho } from '../sync/identity'
 import { Badge, Btn, Card, Input, Select } from './kit'
 
 
 const editor = () => loadWho()?.name ?? ''
+export type FetchRanks = (division: UsauDivision) => Promise<UsauFetch>
 const findRec = (opponents: Opponent[], name: string, season: string) =>
   opponents.find((o) => !o.deleted && o.season === season && normOpp(o.name) === normOpp(name))
 
@@ -37,14 +40,17 @@ function RankInput({ name, season, rec }: { name: string; season: string; rec: O
 }
 
 /**
- * Opponents' end-of-season USAU ranks: typed per opponent, or filled from a pasted
- * USAU rankings page (fuzzy name match, reviewed before anything is saved).
+ * Opponents' end-of-season USAU ranks: typed per opponent, or filled from USAU's
+ * rankings, fetched by the Sheet script or pasted (fuzzy name match, reviewed before
+ * anything is saved).
  * Shared team data: anyone with a key can change it; the newer edit wins.
  */
-export function OpponentRanks({ games, opponents, readOnly }: { games: Game[]; opponents: Opponent[]; readOnly?: boolean }) {
+export function OpponentRanks({ games, opponents, readOnly, fetchRanks = fetchUsau }: { games: Game[]; opponents: Opponent[]; readOnly?: boolean; fetchRanks?: FetchRanks }) {
   const seasons = useMemo(() => seasonsOf(games), [games])
   const [season, setSeason] = useState(seasons[0] ?? '')
-  const [paste, setPaste] = useState(false)
+  // The import panel: closed, opened by "Fetch ranks" (fetches at once), or by "Paste".
+  const [panel, setPanel] = useState<{ fetch: boolean; n: number } | null>(null)
+  const paste = !!panel
   const list = useMemo(() => opponentsOf(games, season), [games, season])
 
   return (
@@ -57,15 +63,20 @@ export function OpponentRanks({ games, opponents, readOnly }: { games: Game[]; o
             <option value="">All seasons (fallback)</option>
           </Select>
           {!readOnly && (
-            <Btn size="sm" onClick={() => setPaste((p) => !p)} aria-expanded={paste}>
-              {paste ? 'Close paste' : 'Paste USAU rankings'}
-            </Btn>
+            <>
+              <Btn size="sm" tone="primary" onClick={() => setPanel((p) => ({ fetch: true, n: (p?.n ?? 0) + 1 }))}>Fetch ranks</Btn>
+              <Btn size="sm" onClick={() => setPanel((p) => (p ? null : { fetch: false, n: 0 }))} aria-expanded={paste}>
+                {paste ? 'Close' : 'Paste USAU rankings'}
+              </Btn>
+            </>
           )}
         </>
       }
     >
       <div data-testid="opponent-ranks">
-        {paste && !readOnly && <RankPaste season={season} opponents={opponents} games={games} onDone={() => setPaste(false)} />}
+        {panel && !readOnly && (
+          <RankPaste key={panel.n} season={season} opponents={opponents} games={games} autoFetch={panel.fetch} fetchRanks={fetchRanks} onDone={() => setPanel(null)} />
+        )}
         {!list.length ? (
           <p className="text-xs text-slate-500">No games {season ? `in ${season}` : 'yet'}.</p>
         ) : (
@@ -112,14 +123,33 @@ interface Choice {
   apply: boolean
 }
 
-/** Paste → review matches → save. Nothing is written until "Save ranks". */
-export function RankPaste({ season, opponents, games, onDone }: { season: string; opponents: Opponent[]; games: Game[]; onDone: () => void }) {
+const when = (iso: string | null) => {
+  const d = iso ? new Date(iso) : null
+  return d && !isNaN(d.getTime()) ? d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : 'just now'
+}
+
+/** Fetch (or paste) → review matches → save. Nothing is written until "Save ranks". */
+export function RankPaste({
+  season, opponents, games, onDone, autoFetch = false, fetchRanks = fetchUsau,
+}: { season: string; opponents: Opponent[]; games: Game[]; onDone: () => void; autoFetch?: boolean; fetchRanks?: FetchRanks }) {
   const [text, setText] = useState('')
   const [teams, setTeams] = useState<UsauRank[] | null>(null)
   const [matches, setMatches] = useState<RankMatch[]>([])
   const [choice, setChoice] = useState<Record<string, Choice>>({})
   const [msg, setMsg] = useState<{ text: string; bad?: boolean } | null>(null)
   const [busy, setBusy] = useState(false)
+  const [division, setDivision] = useState<UsauDivision>('Mixed')
+  const [fetching, setFetching] = useState(false)
+  const [failed, setFailed] = useState(false)
+
+  /** Both sources end here: the same match-and-confirm review. */
+  const load = (found: UsauRank[], from: string) => {
+    const m = matchRanks(opponentsOf(games, season), found)
+    setTeams(found)
+    setMatches(m)
+    setChoice(Object.fromEntries(m.map((x) => [x.opponent, { usau: x.best?.name ?? '', apply: x.quality === 'exact' || x.quality === 'likely' }])))
+    setMsg({ text: `${from}: ${found.length} ranked teams (#${found[0].rank}–#${found.at(-1)!.rank}). Check the matches, then save.` })
+  }
 
   const read = () => {
     const found = parseUsauRankings(text)
@@ -127,12 +157,33 @@ export function RankPaste({ season, opponents, games, onDone }: { season: string
       setTeams(null)
       return setMsg({ text: 'No rankings found. On the USAU rankings page, select the whole page (Ctrl+A / ⌘A), copy, and paste it here.', bad: true })
     }
-    const m = matchRanks(opponentsOf(games, season), found)
-    setTeams(found)
-    setMatches(m)
-    setChoice(Object.fromEntries(m.map((x) => [x.opponent, { usau: x.best?.name ?? '', apply: x.quality === 'exact' || x.quality === 'likely' }])))
-    setMsg({ text: `Found ${found.length} ranked teams (#${found[0].rank}–#${found.at(-1)!.rank}). Check the matches, then save.` })
+    load(found, 'Pasted')
   }
+
+  const fetchNow = async (div: UsauDivision = division) => {
+    setFetching(true)
+    setMsg({ text: `Fetching the USAU Club ${div} rankings…` })
+    try {
+      const r = await fetchRanks(div)
+      setFailed(false)
+      load(r.teams, `Fetched from USAU (Club ${div}, ${r.cached ? 'saved copy from ' : ''}${when(r.fetchedAt)})`)
+    } catch (e) {
+      setFailed(true)
+      setTeams(null)
+      setMsg({ text: `Couldn’t fetch the ranks: ${usauFetchMessage(e)} You can still paste them: open the USAU page, copy it all, and paste below.`, bad: true })
+    } finally {
+      setFetching(false)
+    }
+  }
+
+  // "Fetch ranks" in the card header: one fetch per click.
+  const started = useRef(false)
+  useEffect(() => {
+    if (!autoFetch || started.current) return
+    started.current = true
+    void fetchNow()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const byName = new Map((teams ?? []).map((t) => [t.name, t]))
   const chosen = matches.filter((m) => choice[m.opponent]?.apply && byName.has(choice[m.opponent].usau))
@@ -162,11 +213,21 @@ export function RankPaste({ season, opponents, games, onDone }: { season: string
 
   return (
     <div className="mb-3 flex flex-col gap-2 rounded-lg border border-slate-700 p-2" data-testid="rank-paste">
-      <p className="text-xs text-slate-400">
-        Open the{' '}
+      <div className="flex flex-wrap items-center gap-2">
+        <Select aria-label="USAU division" value={division} onChange={(e) => setDivision(e.target.value as UsauDivision)} className="py-1 text-xs">
+          {USAU_DIVISIONS.map((d) => <option key={d} value={d}>Club {d}</option>)}
+        </Select>
+        <Btn size="sm" tone={autoFetch ? 'default' : 'primary'} onClick={() => void fetchNow()} disabled={fetching}>
+          {fetching ? 'Fetching…' : teams && autoFetch ? 'Fetch again' : 'Fetch from USAU'}
+        </Btn>
+        <span className="text-[11px] text-slate-500">
+          Ranks are saved for: <b>{season ? `${season} season` : 'all seasons'}</b>. USAU only publishes its current list, so fetch at the end of the season.
+        </span>
+      </div>
+      <p className={`text-xs ${failed ? 'text-amber-200' : 'text-slate-400'}`}>
+        {failed ? 'Backup: open' : 'Or paste: open'} the{' '}
         <a className="text-sky-300 underline" href={USAU_RANKINGS_URL} target="_blank" rel="noreferrer">USAU club rankings</a>{' '}
-        (pick the division and the end-of-season list), select the whole page (Ctrl+A / ⌘A), copy, and paste below. USAU doesn’t let other sites read
-        the page, so copy and paste is the way. Ranks are saved for: <b>{season ? `${season} season` : 'all seasons'}</b>.
+        (pick the division, click “View All”), select the whole page (Ctrl+A / ⌘A), copy, and paste below.
       </p>
       <textarea
         aria-label="Pasted USAU rankings"

@@ -1,9 +1,10 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { db } from '../db/db'
 import { GameSchema, type Game } from '../domain/schema'
-import { OpponentRanks } from './OpponentRanks'
+import { SyncError, type UsauFetch } from '../sync/client'
+import { OpponentRanks, type FetchRanks } from './OpponentRanks'
 import { hashWith } from './queryFilter'
 
 const game = (id: string, opponent: string, date: string): Game =>
@@ -89,10 +90,65 @@ describe('opponent ranks', () => {
     expect((await db.opponents.get('opp:2026:disco'))!.rank).toBeNull()
   })
 
-  it('read only (team view): no inputs, no paste', () => {
+  it('read only (team view): no inputs, no paste, no fetch', () => {
     render(<OpponentRanks games={games} opponents={[]} readOnly />)
     expect(screen.queryByRole('textbox')).toBeNull()
     expect(screen.queryByText('Paste USAU rankings')).toBeNull()
+    expect(screen.queryByText('Fetch ranks')).toBeNull()
+  })
+
+  it('Fetch ranks: one fetch per click, into the same review, then save', async () => {
+    const fetched: UsauFetch = {
+      teams: [{ rank: 4, name: 'Austin Disco Club', rating: 1981 }, { rank: 13, name: 'shame.', rating: 1767 }, { rank: 19, name: 'Odyssée', rating: 1684 }],
+      total: 214, fetchedAt: '2026-10-29T19:00:00Z', cached: false, sourceUrl: 'https://play.usaultimate.org/teams/events/team_rankings/?RankSet=Club-Mixed',
+    }
+    const fetchRanks = vi.fn<FetchRanks>(async () => fetched)
+    render(<OpponentRanks games={games} opponents={[]} fetchRanks={fetchRanks} />)
+    act(() => screen.getByRole('button', { name: 'Fetch ranks' }).click())
+    await flush()
+    expect(fetchRanks).toHaveBeenCalledTimes(1)
+    expect(fetchRanks).toHaveBeenCalledWith('Mixed') // Mixed by default
+    expect(screen.getByRole('status').textContent).toMatch(/Fetched from USAU \(Club Mixed.*3 ranked teams/)
+    const review = screen.getByTestId('rank-review')
+    expect(review.textContent).toMatch(/Austin Disco Club/)
+    act(() => screen.getByRole('button', { name: 'Save 3 ranks' }).click())
+    await flush()
+    expect((await db.opponents.toArray()).map((o) => [o.name, o.rank, o.usau_name]).sort()).toEqual([
+      ['Disco', 4, 'Austin Disco Club'], ['Odysee', 19, 'Odyssée'], ['Shame', 13, 'shame.'],
+    ])
+    // Another division from the panel.
+    act(() => screen.getByRole('button', { name: 'Fetch ranks' }).click())
+    await flush()
+    fireEvent.change(screen.getByLabelText('USAU division'), { target: { value: 'Women' } })
+    act(() => screen.getByRole('button', { name: 'Fetch again' }).click())
+    await flush()
+    expect(fetchRanks.mock.calls.map((c) => c[0])).toEqual(['Mixed', 'Mixed', 'Women'])
+  })
+
+  it('Fetch ranks failing (old script) points to paste, and paste still works', async () => {
+    const fetchRanks: FetchRanks = async () => {
+      throw new SyncError({ kind: 'script', error: 'unknown_action', message: 'old' })
+    }
+    render(<OpponentRanks games={games} opponents={[]} fetchRanks={fetchRanks} />)
+    act(() => screen.getByRole('button', { name: 'Fetch ranks' }).click())
+    await flush()
+    const status = screen.getByRole('status').textContent!
+    expect(status).toMatch(/Couldn’t fetch the ranks: Your Sheet script is older than version 6/)
+    expect(status).toMatch(/You can still paste them/)
+    expect(screen.queryByTestId('rank-review')).toBeNull()
+    expect(screen.getByText(/Backup: open/)).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Pasted USAU rankings'), { target: { value: PASTE } })
+    act(() => screen.getByRole('button', { name: 'Read rankings' }).click())
+    expect(screen.getByRole('status').textContent).toMatch(/^Pasted: 4 ranked teams/)
+    expect(screen.getByTestId('rank-review')).toBeTruthy()
+  })
+
+  it('Fetch ranks without Sheet sync set up says so', async () => {
+    localStorage.removeItem('pa:sync')
+    render(<OpponentRanks games={games} opponents={[]} />) // the real fetch (no config saved)
+    act(() => screen.getByRole('button', { name: 'Fetch ranks' }).click())
+    await flush()
+    expect(screen.getByRole('status').textContent).toMatch(/needs Sheet sync set up first.*You can still paste/)
   })
 })
 

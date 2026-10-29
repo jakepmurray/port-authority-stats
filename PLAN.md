@@ -227,3 +227,18 @@ PocketBase is dropped because the Sheet covers sharing.
 - **Limits:** client clocks decide rank edits; ranks match our opponent names exactly after normalizing, so renaming an
   opponent on a game needs its rank re-entered; the USAU page layout may change (the parser is tolerant but untested
   against every variant); the connections card's own filters are not in the link.
+
+## 12. Built (2026-10-29): Fetch ranks from USAU (script version 6)
+
+- USAU's rankings page (play.usaultimate.org/teams/events/team_rankings/?RankSet=Club-Mixed) is ASP.NET WebForms:
+  a GET shows 20 of ~214 rows; its "View All" link is a postback (`__EVENTTARGET=CT_Main_0$lnkViewAll` plus the
+  page's hidden fields and session cookie) that returns every row. No export/CSV link and no season or date selector:
+  it's always the current list. Browsers can't read it from another site, so the Sheet script does it (UrlFetchApp).
+- Code.gs v6: action `usau_ranks` (any valid key; division Mixed/Men/Women → RankSet Club-*), runs outside the Sheet
+  lock; GET, then POST View All only if the page doesn't already show every row; parses table `CT_Main_0_gvList`
+  by its header labels; CacheService 6 h per division; errors `usau_fetch` / `usau_parse` / `bad_division`.
+  `testUsauRanks()` (editor + Sheet menu) approves the new permission and logs the top 5.
+- App: *Fetch ranks* on the Opponent ranks card feeds the same match-and-confirm review as paste; failures explain why
+  (no sync, script older than v6, permission not approved, USAU down or changed) and point to paste.
+- Tests: real saved responses in src/domain/__fixtures__/usau/ (VIEWSTATE trimmed), UrlFetchApp + CacheService in
+  gasMock, client error messages, UI fetch and fallback.

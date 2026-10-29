@@ -111,18 +111,23 @@ Paste a YouTube link, watch the game beside a stat panel, and every stat you ent
 - **Season page:** a *Games* table (date, opponent, **Rank**, score, W/L, holds, hold %, breaks, break %, turns, Ds;
   sortable by rank, hold % and break %) above the player table. Score and W/L always use the whole game.
 - **Opponent ranks (USAU):** the *Season* page's *Opponent ranks* card. Pick the season (a year; *All seasons* is the
-  fallback used when a year has no rank), then either type a rank next to each opponent or:
-  1. Click **Paste USAU rankings** and open the linked USAU club rankings page (choose the division and the end-of-season
-     list there).
-  2. Select the whole page (Ctrl+A / ⌘A), copy, and paste it into the box. USAU blocks other sites from reading the page,
-     so copy and paste is the way (same as roster import). A copied table, "1 Team 2163 …" lines and one cell per line
-     all work.
-  3. Click **Read rankings**. Each of your opponents gets the closest USAU team name with a badge: *exact*, *likely*
-     (e.g. "Disco" → "Austin Disco Club") or *check*. Likely and exact are ticked; change the team in the dropdown or
-     untick a row. Nothing is saved until you click **Save N ranks**.
+  fallback used when a year has no rank), then either type a rank next to each opponent or fill them from USAU:
+  - **Fetch ranks** (script version 6, needs Sheet sync set up with your key): your Sheet script reads USA Ultimate's
+    current club rankings (Club Mixed by default; Men and Women in the *USAU division* menu) and the list goes into the
+    review below. USAU only publishes its *current* list (there's no season or date choice), so fetch at the end of
+    the season. The script fetches at most once per division every 6 hours (two requests to USAU: the page, then its
+    "View All" list) and keeps a copy for the rest of that time.
+  - **Paste USAU rankings** (the backup, and the way to fill a past season): open the linked USAU club rankings page,
+    choose the division, click "View All", select the whole page (Ctrl+A / ⌘A), copy, paste it into the box and click
+    **Read rankings**. A copied table, "1 Team 2163 …" lines and one cell per line all work. If Fetch ranks fails
+    (no sync, older script, USAU down or changed), the card says why and points here.
+  Either way, each of your opponents gets the closest USAU team name with a badge: *exact*, *likely*
+  (e.g. "Disco" → "Austin Disco Club") or *check*. Likely and exact are ticked; change the team in the dropdown or
+  untick a row. Nothing is saved until you click **Save N ranks**.
   Ranks are shared team data: anyone with a key (admin or stat-taker) can change them, the newest edit wins, and who
   changed it is shown (and stored as `edited_by`). They sync to the Sheet (an **Opponents** tab, and an `opp_rank`
-  column in **Game Stats** that the script refreshes on every push) and to the team view. Needs script version 5.
+  column in **Game Stats** that the script refreshes on every push) and to the team view. Needs script version 5
+  (version 6 for Fetch ranks).
 
 ## Google Sheet sync (free)
 
@@ -177,6 +182,14 @@ token keeps working as the admin key.
 Script version 5 (October 2026) adds opponent ranks: an **Opponents** tab and an `opp_rank` column at the end of
 **Game Stats** (added to an existing Sheet automatically), and ranks in the team-view snapshot. Keys, owners and the
 audit log work as in version 4. After updating (steps above), click *Test connection*, then *Push everything* once.
+
+Script version 6 (October 2026) adds **Fetch ranks** (the `usau_ranks` action: any valid key; it reads the public
+USAU rankings page, nothing from the Sheet). Reading a web page needs a new Google permission, "Connect to an external
+service", which you approve once: after pasting the new Code.gs and saving, pick `testUsauRanks` in the editor's
+function menu and click Run, approve the prompt (Advanced > Go to … if Google warns the app isn't verified), and check
+the Execution log shows the top teams. Then deploy a new version (steps above) and click *Test connection*. Until the
+permission is approved, the script may answer with a Google error page instead of syncing, so do this right after
+pasting. The Sheet menu also has *Port Authority Stats > Test USAU ranks fetch*.
 
 ### Stat-takers (script version 4)
 
