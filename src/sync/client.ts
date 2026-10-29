@@ -45,8 +45,8 @@ export class SyncError extends Error {
   }
 }
 
-/** 2: Games tab gained game_clock and ended_at. */
-export const EXPECTED_SCRIPT_VERSION = 2
+/** 2: Games tab gained game_clock and ended_at. 3: team-view snapshot (GET ?action=snapshot). */
+export const EXPECTED_SCRIPT_VERSION = 3
 
 /** Build the fetch options. Exported so a test can pin the exact request format. */
 export function requestInit(body: Record<string, unknown>, token: string): RequestInit {

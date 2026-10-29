@@ -1,7 +1,9 @@
-import { SCHEMA_VERSION, type Game, type GameEvent, type Player, type Point, type SyncOp } from '../domain/schema'
+import { SCHEMA_VERSION, type Game, type GameEvent, type Player, type Point, type SyncOp, type Team } from '../domain/schema'
 import { gameRow, gameSnapshot, playerRow, type SheetRow } from './sheetRows'
+import { snapshotBase, snapshotGame, type SnapshotPush } from './snapshot'
 
 export interface SyncData {
+  teams?: Team[]
   players: Player[]
   games: Game[]
   points: Point[]
@@ -16,6 +18,8 @@ export interface PushBody {
     Games?: { rows: SheetRow[]; delete: string[] }
   }
   replace: { game_ids: string[]; tabs: Record<'Points' | 'Events' | 'Player Stats' | 'Game Stats', SheetRow[]> }
+  /** Team-view snapshot of the same changes (script v3+; older scripts ignore it). */
+  snapshot?: SnapshotPush
 }
 
 /**
@@ -24,6 +28,8 @@ export interface PushBody {
  * - Points, Events, Player Stats, Game Stats: a full snapshot of each touched game
  *   replaces that game's rows (so deleted points/events disappear and stats are
  *   always consistent). A player change touches every game (names appear in stats).
+ * - Team-view snapshot: the raw rows of each touched game, plus all players and teams;
+ *   `full` replaces the stored snapshot completely.
  * `full` pushes everything (first sync, or after a restore from backup).
  */
 export function buildPush(data: SyncData, ops: Pick<SyncOp, 'table' | 'row_id' | 'payload'>[], full = false): PushBody {
@@ -77,7 +83,18 @@ export function buildPush(data: SyncData, ops: Pick<SyncOp, 'table' | 'row_id' |
       for (const k of Object.keys(snap) as (keyof typeof snap)[]) body.replace.tabs[k].push(...snap[k])
     }
   }
+  if (full || touchedPlayers.size || touchedGames.size) {
+    const ids = [...touchedGames].sort()
+    const live = ids.map((id) => gamesById.get(id)).filter((g): g is Game => !!g && !g.deleted)
+    body.snapshot = {
+      full,
+      base: snapshotBase(data.teams ?? [], data.players),
+      games: live.map((g) => snapshotGame(g, data.points, data.events)),
+      delete: ids.filter((id) => !gamesById.get(id) || gamesById.get(id)!.deleted),
+    }
+  }
   return body
 }
 
-export const isEmptyPush = (b: PushBody) => !b.upsert.Players && !b.upsert.Games && b.replace.game_ids.length === 0
+/** Nothing to send (e.g. only team settings changed; the snapshot picks those up with the next push). */
+export const isEmptyPush = (b: PushBody) => !b.upsert.Players && !b.upsert.Games && b.replace.game_ids.length === 0 && !b.snapshot

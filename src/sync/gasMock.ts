@@ -30,7 +30,16 @@ export class MockSheet {
   setFrozenRows(n: number) {
     this.frozen = n
   }
+  hidden = false
+  hideSheet() {
+    this.hidden = true
+  }
+  insertRowsAfter(_after: number, n: number) {
+    this.maxRows += n
+  }
   getRange(row: number, col: number, nr = 1, nc = 1) {
+    // Like Sheets: a range past the last row throws.
+    if (row - 1 + nr > this.maxRows) throw new Error('The coordinates of the range are outside the dimensions of the sheet.')
     const cells = this.cells
     const formats = this.formats
     return {
@@ -80,11 +89,13 @@ export interface Gas {
   props: Map<string, string>
   logs: string[]
   doPost: (e: unknown) => { text: string; mime: string }
-  doGet: () => { text: string; mime: string }
+  doGet: (e?: { parameter?: Record<string, string> }) => { text: string; mime: string }
   setup: () => void
   rotateToken: () => void
   TABS: Record<string, string[]>
   locks: number
+  /** Make the next tryLock fail (another sync holds the lock). */
+  busy: boolean
 }
 
 /** Evaluate Code.gs with mocked Google services. */
@@ -92,7 +103,7 @@ export function loadGas(ss: MockSpreadsheet | null = new MockSpreadsheet()): Gas
   const props = new Map<string, string>()
   const logs: string[] = []
   let uuid = 0
-  const state = { locks: 0 }
+  const state = { locks: 0, busy: false }
   const services = {
     SpreadsheetApp: { getActiveSpreadsheet: () => ss },
     PropertiesService: {
@@ -101,7 +112,7 @@ export function loadGas(ss: MockSpreadsheet | null = new MockSpreadsheet()): Gas
         setProperty: (k: string, v: string) => void props.set(k, v),
       }),
     },
-    LockService: { getScriptLock: () => ({ tryLock: () => (state.locks++, true), releaseLock: () => undefined }) },
+    LockService: { getScriptLock: () => ({ tryLock: () => (state.busy ? false : (state.locks++, true)), releaseLock: () => undefined }) },
     ContentService: {
       MimeType: { JSON: 'application/json' },
       createTextOutput: (text: string) => {
@@ -115,7 +126,15 @@ export function loadGas(ss: MockSpreadsheet | null = new MockSpreadsheet()): Gas
   const names = Object.keys(services)
   const fn = new Function(...names, `${code}\nreturn { doPost, doGet, setup, rotateToken, TABS };`)
   const api = fn(...names.map((n) => services[n as keyof typeof services]))
-  return { ss: ss as MockSpreadsheet, props, logs, ...api, get locks() { return state.locks } }
+  return {
+    ss: ss as MockSpreadsheet, props, logs, ...api,
+    get locks() { return state.locks },
+    get busy() { return state.busy },
+    set busy(v: boolean) { state.busy = v },
+  }
 }
 
 export const post = (gas: Gas, body: unknown) => JSON.parse(gas.doPost({ postData: { contents: JSON.stringify(body), type: 'text/plain' } }).text)
+
+/** GET /exec?<params>, parsed. */
+export const get = (gas: Gas, parameter: Record<string, string> = {}) => JSON.parse(gas.doGet({ parameter }).text)

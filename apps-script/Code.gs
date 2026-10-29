@@ -8,9 +8,14 @@
  * the shared token stored in Script Properties as PA_TOKEN.
  *
  * Never paste your token into this file. It lives only in Script Properties.
+ *
+ * Team view (version 3): every push also stores a read-only copy of the app's data
+ * (players, games, points, events; no token, nothing deleted) in the hidden _Snapshot tab.
+ * GET /exec?action=snapshot returns it as JSON with no token, so teammates can open the
+ * app's team view link. Writing still needs the token.
  */
 
-var SCRIPT_VERSION = 2;
+var SCRIPT_VERSION = 3;
 var TOKEN_PROPERTY = 'PA_TOKEN';
 
 /** Tabs and their header rows. The app sends rows as objects keyed by these names. */
@@ -40,6 +45,12 @@ var UPSERT_TABS = ['Players', 'Games'];
 /** Tabs replaced per game (all rows of a pushed game are swapped for the new snapshot). */
 var GAME_TABS = ['Points', 'Events', 'Player Stats', 'Game Stats'];
 /** Columns kept as plain text (so "07" stays "07" and ids never turn into numbers). */
+/** Hidden tab holding the team-view snapshot as JSON, split into chunks (a cell holds at most 50,000 characters). */
+var SNAPSHOT_TAB = '_Snapshot';
+var SNAPSHOT_HEADER = ['key', 'part', 'chunk'];
+var SNAPSHOT_CHUNK = 45000;
+/** Every chunk starts with this so Sheets never reads JSON as a number, date or formula. */
+var CHUNK_PREFIX = 'j:';
 var TEXT_COLUMNS = ['id', 'game_id', 'player_id', 'number', 'actor_number', 'receiver_number', 'defender_number',
   'call_charged_number', 'line', 'line_end', 'pulled_by', 'date', 'key', 'value'];
 
@@ -55,8 +66,13 @@ function doPost(e) {
   return json_(handle_(req, SpreadsheetApp.getActiveSpreadsheet(), PropertiesService.getScriptProperties()));
 }
 
-/** Opening the /exec URL in a browser shows this (proves the deployment is reachable). */
-function doGet() {
+/**
+ * GET /exec shows that the deployment is reachable. GET /exec?action=snapshot returns the
+ * read-only team-view snapshot (no token: it only ever reads, and holds no secrets).
+ */
+function doGet(e) {
+  var action = e && e.parameter && e.parameter.action;
+  if (action === 'snapshot') return json_(snapshotResponse_(SpreadsheetApp.getActiveSpreadsheet()));
   return json_({ ok: true, app: 'port-authority-stats', version: SCRIPT_VERSION, message: 'Sync endpoint is up. The app talks to it with POST.' });
 }
 
@@ -146,7 +162,21 @@ function readRows_(sheet, width) {
 function writeRows_(sheet, rows, width) {
   var last = sheet.getLastRow();
   if (last >= 2) sheet.getRange(2, 1, last - 1, width).clearContent();
-  if (rows.length) sheet.getRange(2, 1, rows.length, width).setValues(rows);
+  if (!rows.length) return;
+  ensureRows_(sheet, rows.length + 1);
+  sheet.getRange(2, 1, rows.length, width).setValues(rows);
+}
+
+/** A range past the sheet's last row throws, so grow the sheet first (keeping text columns as text). */
+function ensureRows_(sheet, needed) {
+  var max = sheet.getMaxRows();
+  if (needed <= max) return;
+  sheet.insertRowsAfter(max, needed - max + 100);
+  var header = readHeader_(sheet);
+  var rows = sheet.getMaxRows() - max;
+  for (var c = 0; c < header.length; c++) {
+    if (TEXT_COLUMNS.indexOf(header[c]) >= 0 || sheet.getName() === SNAPSHOT_TAB) sheet.getRange(max + 1, c + 1, rows, 1).setNumberFormat('@');
+  }
 }
 
 /** Text that Sheets would treat as a formula is stored as plain text. */
@@ -216,8 +246,108 @@ function push_(req, ss) {
       counts[tab] = { replaced_games: rep.game_ids.length, written: add.length, total: kept.length };
     }
   }
+  if (req.snapshot) counts.snapshot = writeSnapshot_(ss, req.snapshot, req.schema_version);
   writeMeta_(ss, { schema_version: req.schema_version || '', script_version: SCRIPT_VERSION, last_push_at: new Date().toISOString() });
   return { ok: true, version: SCRIPT_VERSION, counts: counts };
+}
+
+// ---------- team-view snapshot ----------
+
+function snapshotSheet_(ss) {
+  var sheet = ss.getSheetByName(SNAPSHOT_TAB);
+  if (!sheet) {
+    sheet = ss.insertSheet(SNAPSHOT_TAB);
+    sheet.getRange(1, 1, 1, SNAPSHOT_HEADER.length).setValues([SNAPSHOT_HEADER]);
+    sheet.getRange(1, 1, sheet.getMaxRows(), SNAPSHOT_HEADER.length).setNumberFormat('@');
+    sheet.setFrozenRows(1);
+    if (sheet.hideSheet) sheet.hideSheet();
+  }
+  return sheet;
+}
+
+function chunkRows_(key, value) {
+  var text = JSON.stringify(value);
+  var rows = [];
+  for (var i = 0, part = 0; i < text.length || part === 0; i += SNAPSHOT_CHUNK, part++) {
+    rows.push([key, part, CHUNK_PREFIX + text.substring(i, i + SNAPSHOT_CHUNK)]);
+  }
+  return rows;
+}
+
+/**
+ * req.snapshot: { full, base: {teams, players}, games: [{id, game, points, events}], delete: [game ids] }
+ * Stored as rows (key, part, chunk): key "base", "game:<id>" and "info". A full push
+ * replaces everything, so a game deleted on the writer's device disappears too.
+ */
+function writeSnapshot_(ss, snap, schemaVersion) {
+  var sheet = snapshotSheet_(ss);
+  var rows = readRows_(sheet, 3);
+  var info = {};
+  for (var r = 0; r < rows.length; r++) {
+    if (String(rows[r][0]) === 'info') {
+      try { info = JSON.parse(String(rows[r][2]).substring(CHUNK_PREFIX.length)); } catch (err) { info = {}; }
+    }
+  }
+  var drop = { info: true };
+  if (snap.base) drop.base = true;
+  var games = snap.games || [];
+  for (var g = 0; g < games.length; g++) drop['game:' + games[g].id] = true;
+  var dels = snap['delete'] || [];
+  for (var d = 0; d < dels.length; d++) drop['game:' + dels[d]] = true;
+  var kept = snap.full ? [] : rows.filter(function (x) { return !drop[String(x[0])]; });
+  if (snap.base) kept = kept.concat(chunkRows_('base', snap.base));
+  for (var k = 0; k < games.length; k++) kept = kept.concat(chunkRows_('game:' + games[k].id, games[k]));
+  var now = new Date().toISOString();
+  info = { updated_at: now, full_at: snap.full ? now : (info.full_at || null), schema_version: schemaVersion || info.schema_version || null };
+  kept.push(['info', 0, CHUNK_PREFIX + JSON.stringify(info)]);
+  writeRows_(sheet, kept, 3);
+  return { games: games.length, deleted: dels.length, full: !!snap.full, rows: kept.length };
+}
+
+/** Rebuild the snapshot from its chunks. */
+function readSnapshot_(ss) {
+  var sheet = ss.getSheetByName(SNAPSHOT_TAB);
+  if (!sheet) return null;
+  var rows = readRows_(sheet, 3);
+  var parts = {};
+  var order = [];
+  for (var r = 0; r < rows.length; r++) {
+    var key = String(rows[r][0]);
+    if (!key) continue;
+    if (!parts[key]) { parts[key] = []; order.push(key); }
+    parts[key][Number(rows[r][1]) || 0] = String(rows[r][2]).substring(CHUNK_PREFIX.length);
+  }
+  var out = { teams: [], players: [], games: [], points: [], events: [], info: {} };
+  for (var i = 0; i < order.length; i++) {
+    var v = JSON.parse(parts[order[i]].join(''));
+    if (order[i] === 'info') out.info = v;
+    else if (order[i] === 'base') { out.teams = v.teams || []; out.players = v.players || []; }
+    else if (order[i].indexOf('game:') === 0) {
+      out.games.push(v.game);
+      out.points = out.points.concat(v.points || []);
+      out.events = out.events.concat(v.events || []);
+    }
+  }
+  return out;
+}
+
+function snapshotResponse_(ss) {
+  if (!ss) return { ok: false, error: 'no_sheet', message: 'The script must be opened from the Sheet (Extensions > Apps Script).' };
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return { ok: false, error: 'busy', message: 'A sync is running. Try again in a moment.' };
+  try {
+    var s = readSnapshot_(ss);
+    if (!s) return { ok: false, error: 'no_snapshot', message: 'No team view data yet. In the app, open Settings and click Push everything.' };
+    return {
+      ok: true, app: 'port-authority-stats', version: SCRIPT_VERSION, kind: 'snapshot',
+      updated_at: s.info.updated_at || null, full_at: s.info.full_at || null, schema_version: s.info.schema_version || null,
+      teams: s.teams, players: s.players, games: s.games, points: s.points, events: s.events
+    };
+  } catch (err) {
+    return { ok: false, error: 'script_error', message: String(err && err.message ? err.message : err) };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function writeMeta_(ss, kv) {

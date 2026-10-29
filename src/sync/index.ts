@@ -13,8 +13,8 @@ export const sync = new SyncEngine({
   config: loadConfig,
   pendingOps: () => db.syncQueue.toArray(),
   push: async (cfg, ops, full) => {
-    const [players, games, points, events] = await Promise.all([db.players.toArray(), db.games.toArray(), db.points.toArray(), db.events.toArray()])
-    const body = buildPush({ players, games, points, events }, ops, full)
+    const [teams, players, games, points, events] = await Promise.all([db.teams.toArray(), db.players.toArray(), db.games.toArray(), db.points.toArray(), db.events.toArray()])
+    const body = buildPush({ teams, players, games, points, events }, ops, full)
     // Nothing for the Sheet (e.g. only team settings changed): still check the URL and token.
     await callScript((u, i) => fetch(u, i), cfg.url, cfg.token, isEmptyPush(body) ? { action: 'ping' } : (body as unknown as Record<string, unknown>))
   },

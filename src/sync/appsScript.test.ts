@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { loadGas, MockSpreadsheet, post } from './gasMock'
+import { get, loadGas, MockSpreadsheet, post } from './gasMock'
+import { buildPush } from './payload'
+import { parseSnapshot } from './snapshot'
+import { teamData } from './snapshotFixture'
 import { SHEET_TABS } from './sheetRows'
 
 const ready = () => {
@@ -108,6 +111,100 @@ describe('Apps Script (Code.gs) with mocked SpreadsheetApp', () => {
     const gas = loadGas(null as unknown as MockSpreadsheet)
     gas.props.set('PA_TOKEN', 't')
     expect(post(gas, { action: 'ping', token: 't' })).toMatchObject({ ok: false, error: 'no_sheet' })
+  })
+})
+
+describe('Apps Script team-view snapshot (doGet ?action=snapshot)', () => {
+  const d = teamData()
+
+  it('a full push stores the snapshot in a hidden tab; GET returns it with no token', () => {
+    const { gas, token } = ready()
+    expect(get(gas, { action: 'snapshot' })).toMatchObject({ ok: false, error: 'no_snapshot' })
+    const r = post(gas, { ...buildPush(d, [], true), token })
+    expect(r).toMatchObject({ ok: true, version: 3, counts: { snapshot: { games: 2, full: true } } })
+    const tab = gas.ss.getSheetByName('_Snapshot')!
+    expect(tab.hidden).toBe(true)
+    expect(tab.cells[0]).toEqual(['key', 'part', 'chunk'])
+    const res = gas.doGet({ parameter: { action: 'snapshot' } })
+    expect(res.mime).toBe('application/json')
+    const body = JSON.parse(res.text)
+    expect(body).toMatchObject({ ok: true, kind: 'snapshot', version: 3, schema_version: 2 })
+    expect(res.text).not.toContain(token)
+    const snap = parseSnapshot(body)
+    expect(snap.games.map((g) => g.opponent).sort()).toEqual(['Alpha', 'Bravo'])
+    expect(snap.events).toHaveLength(d.events.filter((e) => !e.deleted && e.game_id !== 'g3').length)
+    expect(snap.players).toHaveLength(4)
+    expect(snap.fullAt).not.toBeNull()
+    expect(snap.skipped).toBe(0)
+    // the plain GET still answers the health check
+    expect(get(gas)).toMatchObject({ ok: true, version: 3, message: expect.stringContaining('POST') })
+  })
+
+  it('incremental pushes replace only the touched game; deleting a game drops it; full replaces all', () => {
+    const { gas, token } = ready()
+    post(gas, { ...buildPush(d, [], true), token })
+    const fullAt = get(gas, { action: 'snapshot' }).full_at
+    const renamed = { ...d, games: d.games.map((g) => (g.id === 'g2' ? { ...g, opponent: 'Bravo B' } : g)) }
+    post(gas, { ...buildPush(renamed, [{ table: 'games', row_id: 'g2', payload: renamed.games[1] }]), token })
+    let s = get(gas, { action: 'snapshot' })
+    expect(s.games.map((g: { opponent: string }) => g.opponent).sort()).toEqual(['Alpha', 'Bravo B'])
+    expect(s.full_at).toBe(fullAt) // an incremental push keeps the "complete" marker
+    const del = { ...renamed, games: renamed.games.map((g) => (g.id === 'g1' ? { ...g, deleted: true } : g)) }
+    post(gas, { ...buildPush(del, [{ table: 'games', row_id: 'g1', payload: del.games[0] }]), token })
+    s = get(gas, { action: 'snapshot' })
+    expect(s.games.map((g: { id: string }) => g.id)).toEqual(['g2'])
+    expect(s.points.every((p: { game_id: string }) => p.game_id === 'g2')).toBe(true)
+    // a stale game left in the tab disappears on Push everything
+    post(gas, { action: 'push', token, snapshot: { full: false, base: { teams: [], players: [] }, games: [{ id: 'old', game: { id: 'old' }, points: [], events: [] }], delete: [] } })
+    expect(get(gas, { action: 'snapshot' }).games.map((g: { id: string }) => g.id)).toContain('old')
+    post(gas, { ...buildPush(d, [], true), token })
+    expect(get(gas, { action: 'snapshot' }).games.map((g: { id: string }) => g.id).sort()).toEqual(['g1', 'g2'])
+  })
+
+  it('chunks big games under the 50,000-character cell limit and keeps JSON as text', () => {
+    const { gas, token } = ready()
+    const big = { ...d, events: [...d.events] }
+    const base = d.events.find((e) => e.game_id === 'g1' && !e.deleted)!
+    for (let i = 0; i < 1500; i++) big.events.push({ ...base, id: `g1-x${i}`, seq: 100 + i, note: `=formula-looking note ${i} ${'x'.repeat(40)}` })
+    post(gas, { ...buildPush(big, [], true), token })
+    const tab = gas.ss.getSheetByName('_Snapshot')!
+    const chunks = tab.objects().map((r) => String(r.chunk))
+    expect(chunks.length).toBeGreaterThan(5)
+    expect(Math.max(...chunks.map((c) => c.length))).toBeLessThanOrEqual(50000)
+    expect(chunks.every((c) => c.startsWith('j:'))).toBe(true) // never read as a number, date or formula
+    const s = parseSnapshot(get(gas, { action: 'snapshot' }))
+    expect(s.events.filter((e) => e.id.startsWith('g1-x'))).toHaveLength(1500)
+    expect(s.events.find((e) => e.id === 'g1-x7')!.note).toMatch(/^=formula-looking note 7/)
+    // the Events tab grew past the sheet's 1,000 rows without a range error
+    expect(gas.ss.getSheetByName('Events')!.objects().length).toBeGreaterThan(1000)
+  })
+
+  it('writing still needs the token; GET can only read', () => {
+    const { gas, token } = ready()
+    post(gas, { ...buildPush(d, [], true), token })
+    expect(post(gas, { ...buildPush(d, [], true), token: 'stolen-or-old' })).toMatchObject({ ok: false, error: 'bad_token' })
+    const before = JSON.stringify(gas.ss.getSheetByName('_Snapshot')!.cells)
+    get(gas, { action: 'snapshot', token, games: '[]' })
+    get(gas, { action: 'push' })
+    expect(JSON.stringify(gas.ss.getSheetByName('_Snapshot')!.cells)).toBe(before)
+  })
+
+  it('reports busy while a push holds the lock, and a missing Sheet', () => {
+    const { gas, token } = ready()
+    post(gas, { ...buildPush(d, [], true), token })
+    gas.busy = true
+    expect(get(gas, { action: 'snapshot' })).toMatchObject({ ok: false, error: 'busy' })
+    const none = loadGas(null as unknown as MockSpreadsheet)
+    expect(get(none, { action: 'snapshot' })).toMatchObject({ ok: false, error: 'no_sheet' })
+  })
+
+  it('a v2-style push (no snapshot) still works and leaves no snapshot', () => {
+    const { gas, token } = ready()
+    const body = buildPush(d, [], true)
+    delete body.snapshot
+    expect(post(gas, { ...body, token }).ok).toBe(true)
+    expect(gas.ss.getSheetByName('_Snapshot')).toBeNull()
+    expect(gas.ss.getSheetByName('Games')!.objects()).toHaveLength(2)
   })
 })
 
