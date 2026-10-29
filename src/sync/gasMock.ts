@@ -1,5 +1,6 @@
 /** A small in-memory stand-in for SpreadsheetApp & co, enough to run apps-script/Code.gs in tests. */
 import code from '../../apps-script/Code.gs?raw'
+import { sha256 } from './sha256'
 
 type V = string | number | boolean | Date
 
@@ -92,6 +93,17 @@ export interface Gas {
   doGet: (e?: { parameter?: Record<string, string> }) => { text: string; mime: string }
   setup: () => void
   rotateToken: () => void
+  addStatTaker: (name: string) => void
+  listStatTakers: () => void
+  revokeStatTaker: (id: string) => void
+  setAdminName: (name: string) => void
+  onOpen: () => void
+  menuAddStatTaker: () => void
+  menuListStatTakers: () => void
+  menuRevokeStatTaker: () => void
+  menuSetAdminName: () => void
+  /** The Sheet's dialogs: queue answers for prompts; alerts and the menu are recorded. */
+  ui: { answers: string[]; alerts: string[]; menu: string[] }
   TABS: Record<string, string[]>
   locks: number
   /** Make the next tryLock fail (another sync holds the lock). */
@@ -104,12 +116,31 @@ export function loadGas(ss: MockSpreadsheet | null = new MockSpreadsheet()): Gas
   const logs: string[] = []
   let uuid = 0
   const state = { locks: 0, busy: false }
+  const ui = { answers: [] as string[], alerts: [] as string[], menu: [] as string[] }
   const services = {
-    SpreadsheetApp: { getActiveSpreadsheet: () => ss },
+    SpreadsheetApp: {
+      getActiveSpreadsheet: () => ss,
+      getUi: () => {
+        const btn = { OK: 'ok', CANCEL: 'cancel' }
+        const menu = { addItem: (label: string, fn: string) => (ui.menu.push(`${label}=${fn}`), menu), addToUi: () => undefined }
+        return {
+          Button: btn,
+          ButtonSet: { OK: 'ok', OK_CANCEL: 'ok_cancel' },
+          createMenu: (title: string) => (ui.menu.push(title), menu),
+          prompt: () => {
+            const v = ui.answers.shift()
+            return { getSelectedButton: () => (v === undefined ? btn.CANCEL : btn.OK), getResponseText: () => v ?? '' }
+          },
+          alert: (...a: string[]) => void ui.alerts.push(a.filter((x) => !['ok', 'ok_cancel'].includes(x)).join('\n')),
+        }
+      },
+    },
     PropertiesService: {
       getScriptProperties: () => ({
         getProperty: (k: string) => props.get(k) ?? null,
         setProperty: (k: string, v: string) => void props.set(k, v),
+        deleteProperty: (k: string) => void props.delete(k),
+        getProperties: () => Object.fromEntries(props),
       }),
     },
     LockService: { getScriptLock: () => ({ tryLock: () => (state.busy ? false : (state.locks++, true)), releaseLock: () => undefined }) },
@@ -120,14 +151,20 @@ export function loadGas(ss: MockSpreadsheet | null = new MockSpreadsheet()): Gas
         return o
       },
     },
-    Utilities: { getUuid: () => `0000000${++uuid}-aaaa-bbbb-cccc-dddddddddddd`.slice(-36) },
+    Utilities: {
+      getUuid: () => `0000000${++uuid}-aaaa-bbbb-cccc-dddddddddddd`.slice(-36),
+      DigestAlgorithm: { SHA_256: 'sha256' },
+      Charset: { UTF_8: 'utf8' },
+      // Like Apps Script: signed bytes (-128..127).
+      computeDigest: (_alg: string, s: string) => [...sha256(s)].map((b) => (b > 127 ? b - 256 : b)),
+    },
     Logger: { log: (s: unknown) => void logs.push(String(s)) },
   }
   const names = Object.keys(services)
-  const fn = new Function(...names, `${code}\nreturn { doPost, doGet, setup, rotateToken, TABS };`)
+  const fn = new Function(...names, `${code}\nreturn { doPost, doGet, setup, rotateToken, addStatTaker, listStatTakers, revokeStatTaker, setAdminName, onOpen, menuAddStatTaker, menuListStatTakers, menuRevokeStatTaker, menuSetAdminName, TABS };`)
   const api = fn(...names.map((n) => services[n as keyof typeof services]))
   return {
-    ss: ss as MockSpreadsheet, props, logs, ...api,
+    ss: ss as MockSpreadsheet, props, logs, ui, ...api,
     get locks() { return state.locks },
     get busy() { return state.busy },
     set busy(v: boolean) { state.busy = v },
@@ -138,3 +175,11 @@ export const post = (gas: Gas, body: unknown) => JSON.parse(gas.doPost({ postDat
 
 /** GET /exec?<params>, parsed. */
 export const get = (gas: Gas, parameter: Record<string, string> = {}) => JSON.parse(gas.doGet({ parameter }).text)
+
+/** Run addStatTaker in the "editor" and return the key it printed once, plus the id. */
+export function addTaker(gas: Gas, name: string) {
+  gas.addStatTaker(name)
+  const key = gas.logs.at(-1)!
+  const id = /\(id (st_[0-9a-f]+)\)/.exec(gas.logs.at(-2)!)![1]
+  return { key, id }
+}

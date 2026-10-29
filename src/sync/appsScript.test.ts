@@ -4,6 +4,7 @@ import { buildPush } from './payload'
 import { parseSnapshot } from './snapshot'
 import { teamData } from './snapshotFixture'
 import { SHEET_TABS } from './sheetRows'
+import { hex, sha256 } from './sha256'
 
 const ready = () => {
   const gas = loadGas()
@@ -21,14 +22,15 @@ describe('Apps Script (Code.gs) with mocked SpreadsheetApp', () => {
   it('setup creates every tab with headers and prints a token once', () => {
     const { gas, token } = ready()
     expect(token).toMatch(/^[0-9a-f]{64}$/)
-    expect(gas.props.get('PA_TOKEN')).toBe(token)
+    expect(gas.props.get('PA_ADMIN_HASH')).toBe(hex(sha256(token))) // only the hash is stored
+    expect([...gas.props.values()].join(' ')).not.toContain(token)
     for (const [name, header] of Object.entries(SHEET_TABS)) {
       const s = gas.ss.getSheetByName(name)!
       expect(s.cells[0]).toEqual(header)
       expect(s.frozen).toBe(1)
     }
-    gas.setup() // second run: keeps the token, doesn't print it
-    expect(gas.props.get('PA_TOKEN')).toBe(token)
+    gas.setup() // second run: keeps the key, doesn't print it
+    expect(gas.props.get('PA_ADMIN_HASH')).toBe(hex(sha256(token)))
     expect(gas.logs.at(-1)).toContain('already set')
   })
 
@@ -121,14 +123,14 @@ describe('Apps Script team-view snapshot (doGet ?action=snapshot)', () => {
     const { gas, token } = ready()
     expect(get(gas, { action: 'snapshot' })).toMatchObject({ ok: false, error: 'no_snapshot' })
     const r = post(gas, { ...buildPush(d, [], true), token })
-    expect(r).toMatchObject({ ok: true, version: 3, counts: { snapshot: { games: 2, full: true } } })
+    expect(r).toMatchObject({ ok: true, version: 4, counts: { snapshot: { games: 2, full: true } } })
     const tab = gas.ss.getSheetByName('_Snapshot')!
     expect(tab.hidden).toBe(true)
     expect(tab.cells[0]).toEqual(['key', 'part', 'chunk'])
     const res = gas.doGet({ parameter: { action: 'snapshot' } })
     expect(res.mime).toBe('application/json')
     const body = JSON.parse(res.text)
-    expect(body).toMatchObject({ ok: true, kind: 'snapshot', version: 3, schema_version: 2 })
+    expect(body).toMatchObject({ ok: true, kind: 'snapshot', version: 4, schema_version: 2 })
     expect(res.text).not.toContain(token)
     const snap = parseSnapshot(body)
     expect(snap.games.map((g) => g.opponent).sort()).toEqual(['Alpha', 'Bravo'])
@@ -137,10 +139,10 @@ describe('Apps Script team-view snapshot (doGet ?action=snapshot)', () => {
     expect(snap.fullAt).not.toBeNull()
     expect(snap.skipped).toBe(0)
     // the plain GET still answers the health check
-    expect(get(gas)).toMatchObject({ ok: true, version: 3, message: expect.stringContaining('POST') })
+    expect(get(gas)).toMatchObject({ ok: true, version: 4, message: expect.stringContaining('POST') })
   })
 
-  it('incremental pushes replace only the touched game; deleting a game drops it; full replaces all', () => {
+  it('incremental pushes replace only the touched game; deleting a game drops it; full keeps other games', () => {
     const { gas, token } = ready()
     post(gas, { ...buildPush(d, [], true), token })
     const fullAt = get(gas, { action: 'snapshot' }).full_at
@@ -154,11 +156,10 @@ describe('Apps Script team-view snapshot (doGet ?action=snapshot)', () => {
     s = get(gas, { action: 'snapshot' })
     expect(s.games.map((g: { id: string }) => g.id)).toEqual(['g2'])
     expect(s.points.every((p: { game_id: string }) => p.game_id === 'g2')).toBe(true)
-    // a stale game left in the tab disappears on Push everything
-    post(gas, { action: 'push', token, snapshot: { full: false, base: { teams: [], players: [] }, games: [{ id: 'old', game: { id: 'old' }, points: [], events: [] }], delete: [] } })
-    expect(get(gas, { action: 'snapshot' }).games.map((g: { id: string }) => g.id)).toContain('old')
+    // someone else's game stays when the admin pushes everything (it is theirs, not missing)
+    post(gas, { action: 'push', token, snapshot: { full: false, base: { teams: [], players: [] }, games: [{ id: 'other', game: { id: 'other' }, points: [], events: [] }], delete: [] } })
     post(gas, { ...buildPush(d, [], true), token })
-    expect(get(gas, { action: 'snapshot' }).games.map((g: { id: string }) => g.id).sort()).toEqual(['g1', 'g2'])
+    expect(get(gas, { action: 'snapshot' }).games.map((g: { id: string }) => g.id).sort()).toEqual(['g1', 'g2', 'other'])
   })
 
   it('chunks big games under the 50,000-character cell limit and keeps JSON as text', () => {
